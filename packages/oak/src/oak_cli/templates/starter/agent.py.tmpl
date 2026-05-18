@@ -1,0 +1,111 @@
+"""Starter agent for the ``${name}`` project.
+
+Wires `oak.session.openhands.attach()` per-request inside a FastAPI app.
+This is the production shape: workspace + state store + lease + session
+attach, with the OpenHands wrapper driving the per-turn loop.
+
+Run with:
+
+    uv sync
+    uv run uvicorn agent:app --reload
+
+Required extras: ``oak[openhands]`` (which pulls in oak-session[openhands]).
+For local dev without Redis, swap RedisStateStore -> InMemoryStateStore
+and drop the lease arg in configure().
+"""
+
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
+# [USER] FastAPI app + uvicorn runtime
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+# [OAK] core
+import oak.session
+import oak.workspace
+
+# [OAK] reference backends
+from oak_session.state_stores.in_memory import InMemoryStateStore
+
+
+class TurnRequest(BaseModel):
+    # [USER] product-level request shape
+    session_id: str
+    text: str
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """[OAK] one-time process setup at startup.
+
+    Production: swap InMemoryStateStore for RedisStateStore + configure
+    `lease=RedisLease(...)` for multi-pod ownership coordination.
+    """
+    # [OAK] configure once at startup
+    oak.session.configure(state_store=InMemoryStateStore())  # type: ignore[attr-defined]
+    yield
+
+
+app = FastAPI(title="${name}", lifespan=lifespan)
+
+
+@app.post("/turn")
+async def turn(req: TurnRequest) -> dict[str, str]:
+    """[USER] per-request handler — one turn of the agent loop."""
+
+    # [OAK] gated import: only available if `oak[openhands]` extra is installed
+    try:
+        from oak.session import openhands as oak_openhands  # type: ignore[attr-defined]
+    except ImportError:
+        return {
+            "error": (
+                "oak[openhands] extra not installed. "
+                "Run: pip install 'oak[openhands]'"
+            )
+        }
+
+    # [USER + FRAMEWORK] bring your own Agent
+    from openhands.sdk import Agent  # type: ignore[import-not-found]
+
+    agent = Agent(
+        # [USER] model + tools + prompt
+        llm=None,  # configure your LLM here
+        tools=[],
+        system_message="You are a helpful assistant.",
+    )
+
+    # [OAK] attach session: rehydrate state, reconnect workspace, hold lease
+    async with oak_openhands.attach(
+        req.session_id,
+        agent=agent,
+        system_prompt="You are a helpful assistant.",
+        workspace_factory=lambda: oak.workspace.create("local"),  # type: ignore[attr-defined]
+        on_workspace_lost="boot_fresh",
+    ) as session:
+        # [OAK wrapper] drives upstream LocalConversation non-blocking
+        result = await session.run_turn(req.text)
+
+    return {"status": result.status, "session_id": req.session_id}
+
+
+@app.post("/end/{session_id}")
+async def end(session_id: str) -> dict[str, str]:
+    """[USER] terminate a session — workspace torn down, state cleared."""
+    await oak.session.end(session_id)  # type: ignore[attr-defined]
+    return {"status": "ended", "session_id": session_id}
+
+
+if __name__ == "__main__":
+    # [USER] dev runner — production: use uvicorn / gunicorn directly
+    import uvicorn
+
+    uvicorn.run(
+        "agent:app",
+        host="127.0.0.1",
+        port=int(os.environ.get("PORT", "8000")),
+        reload=True,
+    )

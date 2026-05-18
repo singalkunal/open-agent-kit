@@ -1,0 +1,15 @@
+[project]
+name = "${name}"
+version = "0.0.1"
+description = "An oak starter project."
+requires-python = ">=${python_version}"
+dependencies = [
+    "oak[openhands]",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

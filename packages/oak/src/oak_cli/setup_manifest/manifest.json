@@ -1,0 +1,198 @@
+{
+  "workspace": {
+    "local": {
+      "label": "Local subprocess (dev only)",
+      "extras": [],
+      "env": [],
+      "imports": ["import oak_workspace"],
+      "config_snippet": "ws = await oak_workspace.create(\"local\", working_dir=\"/tmp/oak\")"
+    },
+    "e2b": {
+      "label": "E2B (cloud sandbox)",
+      "extras": ["oak-workspace[e2b]"],
+      "env": [
+        {
+          "name": "${E2B_API_KEY_NAME}",
+          "description": "E2B sandbox API key. Sign up at https://e2b.dev/",
+          "example": ""
+        }
+      ],
+      "imports": ["import os", "import oak_workspace"],
+      "config_snippet": "ws = await oak_workspace.create(\"e2b\", api_key=os.environ[\"${E2B_API_KEY_NAME}\"], timeout_ms=${E2B_TIMEOUT_MS})"
+    }
+  },
+  "state_store": {
+    "in_memory": {
+      "label": "In-memory (single process, dev only)",
+      "extras": [],
+      "env": [],
+      "imports": ["import oak_session"],
+      "config_snippet": "state_store = oak_session.InMemoryStateStore()"
+    },
+    "redis": {
+      "label": "Redis",
+      "extras": ["oak-session[redis]"],
+      "env": [
+        {
+          "name": "${REDIS_URL_NAME}",
+          "description": "Redis connection string for state store.",
+          "example": "redis://localhost:6379/0"
+        }
+      ],
+      "imports": [
+        "import os",
+        "import oak_session",
+        "from redis.asyncio import Redis"
+      ],
+      "config_snippet": "redis_client = Redis.from_url(os.environ[\"${REDIS_URL_NAME}\"])\n    state_store = oak_session.RedisStateStore(redis_client)"
+    },
+    "postgres": {
+      "label": "Postgres",
+      "extras": ["oak-session[postgres]"],
+      "env": [
+        {
+          "name": "${PG_URL_NAME}",
+          "description": "Postgres connection string for state store.",
+          "example": "postgresql://oak:oak@localhost:5432/oak"
+        }
+      ],
+      "imports": [
+        "import os",
+        "import asyncpg",
+        "import oak_session"
+      ],
+      "config_snippet": "pg_pool = await asyncpg.create_pool(os.environ[\"${PG_URL_NAME}\"])\n    state_store = oak_session.PostgresStateStore(pg_pool)"
+    },
+    "custom": {
+      "label": "Custom (stub)",
+      "extras": [],
+      "env": [],
+      "imports": ["import oak_session"],
+      "config_snippet": "# TODO [USER]: implement your own SessionStateStore.\n    #   Must satisfy oak_session.SessionStateStore Protocol\n    #   (async put / get / delete_session). See oak/protocols/state-store.\n    state_store = MyCustomStateStore()"
+    }
+  },
+  "lease": {
+    "redis_shared": {
+      "label": "Redis (shared with state store)",
+      "extras": [],
+      "env": [],
+      "imports": ["import oak_session"],
+      "config_snippet": "lease = oak_session.RedisLease(redis_client)"
+    },
+    "redis_separate": {
+      "label": "Redis (separate instance)",
+      "extras": ["oak-session[redis]"],
+      "env": [
+        {
+          "name": "${REDIS_LEASE_URL_NAME}",
+          "description": "Redis connection string for lease coordinator.",
+          "example": "redis://localhost:6379/1"
+        }
+      ],
+      "imports": [
+        "import os",
+        "import oak_session",
+        "from redis.asyncio import Redis"
+      ],
+      "config_snippet": "lease_redis = Redis.from_url(os.environ[\"${REDIS_LEASE_URL_NAME}\"])\n    lease = oak_session.RedisLease(lease_redis)"
+    },
+    "in_memory": {
+      "label": "In-memory (single process only)",
+      "extras": [],
+      "env": [],
+      "imports": ["import oak_session"],
+      "config_snippet": "# WARNING [USER]: InMemoryLease is single-process only.\n    #   Multiple workers will not coordinate. Use RedisLease for production.\n    lease = oak_session.InMemoryLease()"
+    },
+    "none": {
+      "label": "None (no coordination)",
+      "extras": [],
+      "env": [],
+      "imports": [],
+      "config_snippet": "# WARNING [USER]: No lease configured.\n    #   Concurrent attach() calls across processes can race on the same\n    #   session_id. Acceptable only for single-worker deployments.\n    lease = None"
+    },
+    "custom": {
+      "label": "Custom (stub)",
+      "extras": [],
+      "env": [],
+      "imports": ["import oak_session"],
+      "config_snippet": "# TODO [USER]: implement your own LeaseManager.\n    #   Must satisfy oak_session.LeaseManager Protocol\n    #   (async acquire / renew / release).\n    lease = MyCustomLease()"
+    }
+  },
+  "tracing": {
+    "none": {
+      "label": "None (console only)",
+      "extras": [],
+      "env": [],
+      "imports": [],
+      "config_snippet": "trace = None  # no remote trace source; rehydration starts empty"
+    },
+    "staso": {
+      "label": "Staso",
+      "extras": ["oak-session[staso]"],
+      "env": [
+        {
+          "name": "${STASO_API_KEY_NAME}",
+          "description": "Staso tracing API key. https://staso.ai/",
+          "example": ""
+        }
+      ],
+      "imports": ["import os", "import oak_session"],
+      "config_snippet": "trace = oak_session.StasoTraceSource(api_key=os.environ[\"${STASO_API_KEY_NAME}\"])"
+    },
+    "langfuse": {
+      "label": "Langfuse",
+      "extras": ["oak-session[langfuse]"],
+      "env": [
+        {
+          "name": "${LANGFUSE_API_KEY_NAME}",
+          "description": "Langfuse public/secret key.",
+          "example": ""
+        }
+      ],
+      "imports": ["import os", "import oak_session"],
+      "config_snippet": "# TODO [USER]: wire Langfuse query callable into OTLPSpansTraceSource.\n    #   Langfuse adapter is not yet first-class in oak_session.\n    async def _langfuse_query(session_id: str) -> list[dict]:\n        raise NotImplementedError(\"plug Langfuse client here\")\n    trace = oak_session.OTLPSpansTraceSource(query=_langfuse_query)"
+    },
+    "phoenix": {
+      "label": "Arize Phoenix",
+      "extras": ["oak-session[phoenix]"],
+      "env": [
+        {
+          "name": "${PHOENIX_API_KEY_NAME}",
+          "description": "Arize Phoenix API key.",
+          "example": ""
+        }
+      ],
+      "imports": ["import os", "import oak_session"],
+      "config_snippet": "# TODO [USER]: wire Phoenix query callable into OTLPSpansTraceSource.\n    async def _phoenix_query(session_id: str) -> list[dict]:\n        raise NotImplementedError(\"plug Phoenix client here\")\n    trace = oak_session.OTLPSpansTraceSource(query=_phoenix_query)"
+    },
+    "logfire": {
+      "label": "Logfire",
+      "extras": ["oak-session[logfire]"],
+      "env": [
+        {
+          "name": "${LOGFIRE_API_KEY_NAME}",
+          "description": "Pydantic Logfire write token.",
+          "example": ""
+        }
+      ],
+      "imports": ["import os", "import oak_session"],
+      "config_snippet": "# TODO [USER]: wire Logfire query callable into OTLPSpansTraceSource.\n    async def _logfire_query(session_id: str) -> list[dict]:\n        raise NotImplementedError(\"plug Logfire client here\")\n    trace = oak_session.OTLPSpansTraceSource(query=_logfire_query)"
+    },
+    "otlp": {
+      "label": "OTLP (custom query)",
+      "extras": [],
+      "env": [],
+      "imports": ["import oak_session"],
+      "config_snippet": "# TODO [USER]: plug your own async span-query callable here.\n    #   Signature: async def query(session_id: str) -> list[dict]\n    async def _otlp_query(session_id: str) -> list[dict]:\n        raise NotImplementedError(\"plug your OTLP / Jaeger / Tempo client here\")\n    trace = oak_session.OTLPSpansTraceSource(query=_otlp_query)"
+    }
+  },
+  "framework": {
+    "openhands": {
+      "label": "OpenHands",
+      "extras": ["oak-session[openhands]"],
+      "env": [],
+      "imports": ["import oak_session.openhands"],
+      "attach_call": "oak_session.openhands.attach"
+    }
+  }
+}

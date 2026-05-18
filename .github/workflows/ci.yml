@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Sync workspace
+        run: uv sync --all-extras --dev
+
+      - name: Ruff (lint + format check)
+        run: uv run ruff check packages/
+
+      - name: mypy --strict
+        run: |
+          uv run mypy --strict \
+            packages/oak-workspace/src/oak_workspace \
+            packages/oak-session/src/oak_session \
+            packages/oak/src/oak_cli
+
+      - name: pytest
+        run: uv run pytest packages/ -v

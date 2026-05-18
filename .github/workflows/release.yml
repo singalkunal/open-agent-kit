@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Determine package from tag
+        id: pkg
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          case "$TAG" in
+            v*-workspace)
+              echo "package=oak-workspace" >> "$GITHUB_OUTPUT"
+              ;;
+            v*-session)
+              echo "package=oak-session" >> "$GITHUB_OUTPUT"
+              ;;
+            v*-cli|v[0-9]*)
+              echo "package=oak" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unknown tag format: $TAG" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Sync workspace
+        run: uv sync
+
+      - name: Build wheel + sdist
+        run: |
+          cd packages/${{ steps.pkg.outputs.package }}
+          uv build
+
+      - name: Publish to PyPI (trusted publishing via OIDC)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/${{ steps.pkg.outputs.package }}/dist/
+          skip-existing: true

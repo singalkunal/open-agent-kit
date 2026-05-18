@@ -1,0 +1,31 @@
+# ${name}
+
+An oak starter project. FastAPI app wiring `oak.session.openhands.attach()`
+per-request.
+
+```bash
+uv sync
+uv run uvicorn agent:app --reload
+```
+
+## Shape
+
+- `oak.workspace.create("local", ...)` — sandbox provider (swap for `"e2b"` in prod)
+- `InMemoryStateStore` — single-pod state (swap for `RedisStateStore` in prod)
+- `oak.session.openhands.attach(...)` — high-level per-request flow
+- No lease, no trace source: enable both in production via `oak.session.configure(...)`
+
+## Ownership markers
+
+Code is annotated with:
+- `[USER]`     — your application code; you own it
+- `[OAK]`      — oak primitives / lifecycle plumbing
+- `[FRAMEWORK]`— upstream agent framework (e.g., OpenHands SDK)
+
+## Extras
+
+The starter requires `oak[openhands]`. Add as needed:
+
+```bash
+pip install 'oak[openhands,e2b,redis,staso]'
+```

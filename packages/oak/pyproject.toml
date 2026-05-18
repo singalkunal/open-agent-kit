@@ -1,0 +1,55 @@
+[project]
+name = "oak"
+version = "0.1.0"
+description = "Umbrella CLI for the oak toolkit (oak demo, oak init, oak protocols)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "oak contributors" }]
+dependencies = [
+    "typer>=0.12,<1.0",
+    "rich>=13.0,<14.0",
+    "oak-workspace",
+    "oak-session",
+]
+
+[project.optional-dependencies]
+demo = [
+    "oak-workspace",
+    "oak-session",
+]
+openhands = ["oak-session[openhands]"]
+e2b = ["oak-workspace[e2b]"]
+redis = ["oak-session[redis]"]
+staso = ["oak-session[staso]"]
+all = [
+    "oak-workspace",
+    "oak-session",
+    "oak-workspace[e2b]",
+    "oak-session[redis,postgres,staso,langfuse,phoenix,logfire,openhands]",
+]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.10",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+oak = "oak_cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/oak_cli"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/oak_cli/templates" = "oak_cli/templates"
+"src/oak_cli/setup_manifest/manifest.json" = "oak_cli/setup_manifest/manifest.json"
+"src/oak_cli/setup_manifest/templates" = "oak_cli/setup_manifest/templates"
+
+[tool.uv.sources]
+oak-workspace = { workspace = true }
+oak-session = { workspace = true }

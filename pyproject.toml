@@ -1,0 +1,99 @@
+[project]
+name = "oak-workspace-root"
+version = "0.0.0"
+description = "Monorepo root for the oak toolkit. Not published."
+requires-python = ">=3.12"
+dependencies = [
+    "oak-workspace",
+    "oak-session",
+    "oak",
+]
+
+# v0.1 workspace members. Cut packages (oak-archive, oak-dev, oak-storage)
+# and folded/deferred packages (oak-lease folded into oak-session;
+# oak-memory deferred with design) are excluded - directories remain only
+# as tombstones with deprecation READMEs pending Phase 1 cleanup.
+[tool.uv.workspace]
+members = [
+    "packages/oak-workspace",
+    "packages/oak-session",
+    "packages/oak",
+]
+
+[tool.uv.sources]
+oak-workspace = { workspace = true }
+oak-session = { workspace = true }
+oak = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.10",
+    "ruff>=0.5",
+    "pyyaml>=6.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+    "packages/oak/tests/fixtures",
+    "packages/oak/src/oak_cli/setup_manifest/templates",
+    "packages/oak/src/oak_cli/templates",
+]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",
+    "I",
+    "B",
+    "UP",
+    "RUF",
+    "ASYNC",
+]
+ignore = [
+    "E501",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = [
+    "redis",
+    "redis.*",
+    "staso",
+    "staso.*",
+    "openhands",
+    "openhands.*",
+    "asyncpg",
+    "asyncpg.*",
+    "phoenix",
+    "phoenix.*",
+    "langfuse",
+    "langfuse.*",
+    "logfire",
+    "logfire.*",
+    "e2b",
+    "e2b.*",
+    "e2b_code_interpreter",
+    "e2b_code_interpreter.*",
+    "docker",
+    "docker.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "contract: contract tests that every backend must pass",
+    "integration: integration tests requiring external infra",
+]

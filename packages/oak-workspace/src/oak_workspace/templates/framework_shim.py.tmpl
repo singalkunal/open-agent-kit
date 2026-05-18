@@ -1,0 +1,31 @@
+"""Framework shim template — see docs/plan/extending-oak.md Recipe B.
+
+Replace the three `TODO` markers below with values from the target
+framework. The default shape is a subclass shim: it multiply-inherits
+from oak's concrete workspace and the framework's expected base class
+so `isinstance(ws, FrameworkBase)` checks pass without rewriting code.
+
+Variables substituted by `string.Template`:
+* ${framework_name}        — e.g. "mastra"
+* ${framework_base_import} — e.g. "from mastra.workspace import BaseWorkspace"
+* ${framework_base_class}  — e.g. "BaseWorkspace"
+* ${oak_backend_import}    — e.g. "from oak_workspace import LocalProcessWorkspace"
+* ${oak_backend_class}     — e.g. "LocalProcessWorkspace"
+"""
+
+from __future__ import annotations
+
+${framework_base_import}
+${oak_backend_import}
+
+
+class ${framework_name}Workspace(${oak_backend_class}, ${framework_base_class}):
+    """Oak workspace exposed under ${framework_name}'s expected base class.
+
+    The multiple-inheritance shim works when method signatures already
+    align between oak and the framework. If they don't, switch to a
+    wrapper adapter: hold an oak instance and delegate explicitly.
+    """
+
+    # TODO: re-implement framework-specific methods here if signatures
+    # diverge from oak's Protocol. Most shims need zero overrides.

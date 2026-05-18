@@ -1,0 +1,13 @@
+# Paste these into your project's pyproject.toml.
+# Merge the dependencies list with whatever you already have.
+
+[project]
+dependencies = [
+    "oak-workspace",
+    "oak-session",
+    "oak-workspace[e2b]",
+    "oak-session[postgres]",
+    "oak-session[redis]",
+    "oak-session[langfuse]",
+    "oak-session[openhands]",
+]
