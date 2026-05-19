@@ -11,9 +11,7 @@ pytest.importorskip("e2b_code_interpreter")
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(
-        "E2B_API_KEY" not in os.environ, reason="E2B_API_KEY not set"
-    ),
+    pytest.mark.skipif("E2B_API_KEY" not in os.environ, reason="E2B_API_KEY not set"),
 ]
 
 from oak_workspace.e2b import E2BWorkspace  # noqa: E402

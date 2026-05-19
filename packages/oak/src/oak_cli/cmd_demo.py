@@ -138,10 +138,7 @@ async def _run(session_id: str, console: Console) -> int:
             console,
             5,
             "inspect attached.state",
-            (
-                "no prior messages (fresh session); "
-                "tool_history=[]; pending_action=None"
-            ),
+            ("no prior messages (fresh session); tool_history=[]; pending_action=None"),
         )
 
         # exit context manager: in the real attach(), this would pause the
@@ -165,8 +162,7 @@ async def _run(session_id: str, console: Console) -> int:
 
     elapsed = time.monotonic() - started
     console.print(
-        f"\n[bold green]oak demo complete[/] in {elapsed:.2f}s - "
-        "zero credentials, zero env vars"
+        f"\n[bold green]oak demo complete[/] in {elapsed:.2f}s - zero credentials, zero env vars"
     )
     return 0
 

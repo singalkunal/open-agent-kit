@@ -6,8 +6,7 @@ dependencies = [
     "oak-workspace",
     "oak-session",
     "oak-workspace[e2b]",
-    "oak-session[postgres]",
     "oak-session[redis]",
-    "oak-session[langfuse]",
+    "oak-session[staso]",
     "oak-session[openhands]",
 ]

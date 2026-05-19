@@ -1,8 +1,12 @@
 """Dataclasses for the setup manifest + bundle renderer.
 
 The manifest is a plain JSON file; this module loads it, validates shape, and
-renders the four output files (oak_setup.py, pyproject_snippet.toml,
-.env.example, docker-compose.yml) for a given ``SetupSelection``.
+renders the output bundle (``oak.yaml``, ``pyproject_snippet.toml``,
+``.env.example``) for a given ``SetupSelection``.
+
+The wizard emits a declarative spec; the user's app loads it via
+``oak.session.configure_from_yaml("oak.yaml")``. The wizard does not emit
+Python wiring or docker-compose: provisioning infra is the user's job.
 """
 
 from __future__ import annotations
@@ -51,8 +55,6 @@ class SetupSelection:
     lease: str
     tracing: str
     framework: str
-    # ``substitutions`` holds string.Template values harvested at prompt time
-    # (e.g. {"E2B_API_KEY_NAME": "E2B_API_KEY", "E2B_TIMEOUT_MS": "900000"}).
     substitutions: dict[str, str] = field(default_factory=dict)
 
 
@@ -95,29 +97,18 @@ def load_manifest() -> Manifest:
     )
 
 
-# ---------------------------------------------------------------------------
-# rendering
-# ---------------------------------------------------------------------------
-
 _TEMPLATE_PKG = "oak_cli.setup_manifest.templates"
 
 
 def _load_template(name: str) -> str:
-    return (
-        resources.files(_TEMPLATE_PKG)
-        .joinpath(name)
-        .read_bytes()
-        .decode("utf-8")
-    )
+    return resources.files(_TEMPLATE_PKG).joinpath(name).read_bytes().decode("utf-8")
 
 
 def _sub(text: str, mapping: dict[str, str]) -> str:
     return string.Template(text).safe_substitute(mapping)
 
 
-def _selected_options(
-    manifest: Manifest, sel: SetupSelection
-) -> list[BackendOption]:
+def _selected_options(manifest: Manifest, sel: SetupSelection) -> list[BackendOption]:
     return [
         manifest.workspace[sel.workspace],
         manifest.state_store[sel.state_store],
@@ -125,18 +116,6 @@ def _selected_options(
         manifest.tracing[sel.tracing],
         manifest.framework[sel.framework],
     ]
-
-
-def _gather_imports(opts: list[BackendOption]) -> list[str]:
-    """Dedupe imports preserving first-seen order."""
-    seen: set[str] = set()
-    out: list[str] = []
-    for opt in opts:
-        for imp in opt.imports:
-            if imp not in seen:
-                seen.add(imp)
-                out.append(imp)
-    return out
 
 
 def _gather_extras(opts: list[BackendOption]) -> list[str]:
@@ -169,84 +148,127 @@ def _gather_env(opts: list[BackendOption], mapping: dict[str, str]) -> list[EnvV
     return out
 
 
-def _reindent(text: str, n: int) -> str:
-    """Place a multi-line snippet at column ``n`` while preserving relative indent.
-
-    Snippets in the manifest are authored with the assumption that line 1 lives
-    at column 0 (the template provides the leading whitespace via its own
-    indentation). Subsequent lines may carry their own *relative* indentation
-    (e.g. nested ``def`` bodies). We dedent against the minimum non-empty
-    leading-space of lines 2+, then re-indent every continuation line by ``n``.
-    """
-    lines = text.split("\n")
-    if len(lines) <= 1:
-        return text
+def _indent_block(lines: list[str], n: int = 2) -> str:
     pad = " " * n
-    # Find the minimum leading whitespace of the continuation lines so we can
-    # treat that as the "base" of the snippet and rebase to column n.
-    cont = lines[1:]
-    indents = [
-        len(ln) - len(ln.lstrip())
-        for ln in cont
-        if ln.strip()
-    ]
-    base = min(indents) if indents else 0
-    out = [lines[0]]
-    for ln in cont:
-        if not ln.strip():
-            out.append("")
-        else:
-            out.append(pad + ln[base:])
-    return "\n".join(out)
+    return "\n".join(pad + ln if ln else "" for ln in lines)
 
 
-def _render_oak_setup(
-    manifest: Manifest, sel: SetupSelection
-) -> str:
-    opts = _selected_options(manifest, sel)
-    workspace_opt, state_opt, lease_opt, trace_opt, fw_opt = opts
-
-    imports = _gather_imports(opts)
-    # Ensure stdlib essentials are present.
-    for must in ("import asyncio", "import os"):
-        if must not in imports:
-            imports.insert(0, must)
-    # Sort: stdlib first, then third-party, then oak. Simple heuristic.
-    stdlib = sorted(i for i in imports if i.split()[1] in {"asyncio", "os"})
-    others = [i for i in imports if i not in stdlib]
-    imports_block = "\n".join(stdlib + sorted(others))
-
+def _workspace_block(sel: SetupSelection) -> str:
     sub = sel.substitutions
-    workspace_line = _sub(workspace_opt.config_snippet, sub)
-    state_line = _sub(state_opt.config_snippet, sub)
-    lease_line = _sub(lease_opt.config_snippet, sub)
-    trace_line = _sub(trace_opt.config_snippet, sub)
+    if sel.workspace == "local":
+        return _indent_block(["kind: local"])
+    if sel.workspace == "e2b":
+        api_key = sub.get("E2B_API_KEY_NAME", "E2B_API_KEY")
+        timeout = sub.get("E2B_TIMEOUT_MS", "900000")
+        return _indent_block(
+            [
+                "kind: e2b",
+                f"api_key_env: {api_key}",
+                f"idle_timeout_ms: {timeout}",
+            ]
+        )
+    raise ValueError(f"unknown workspace selection: {sel.workspace}")
 
-    template = _load_template("oak_setup.py.tmpl")
+
+def _state_store_block(sel: SetupSelection) -> str:
+    sub = sel.substitutions
+    if sel.state_store == "in_memory":
+        return _indent_block(["kind: in_memory"])
+    if sel.state_store == "redis":
+        url_env = sub.get("REDIS_URL_NAME", "REDIS_URL")
+        return _indent_block(["kind: redis", f"url_env: {url_env}"])
+    if sel.state_store == "custom":
+        return _indent_block(
+            [
+                "kind: custom",
+                "# Point at your callable that returns a SessionStateStore.",
+                "factory: my_package.module:make_state_store",
+            ]
+        )
+    raise ValueError(f"unknown state_store selection: {sel.state_store}")
+
+
+def _lease_block(sel: SetupSelection) -> str:
+    sub = sel.substitutions
+    if sel.lease == "redis_shared":
+        url_env = sub.get("REDIS_URL_NAME", "REDIS_URL")
+        return _indent_block(
+            [
+                "kind: redis",
+                f"url_env: {url_env}",
+                "ttl_seconds: 30",
+            ]
+        )
+    if sel.lease == "redis_separate":
+        url_env = sub.get("REDIS_LEASE_URL_NAME", "REDIS_LEASE_URL")
+        return _indent_block(
+            [
+                "kind: redis",
+                f"url_env: {url_env}",
+                "ttl_seconds: 30",
+            ]
+        )
+    if sel.lease == "in_memory":
+        return _indent_block(
+            [
+                "# Single-process only. Multiple workers will not coordinate.",
+                "kind: in_memory",
+                "ttl_seconds: 30",
+            ]
+        )
+    if sel.lease == "none":
+        return _indent_block(
+            [
+                "# No coordination. Concurrent attach() across processes can race.",
+                "kind: none",
+            ]
+        )
+    if sel.lease == "custom":
+        return _indent_block(
+            [
+                "kind: custom",
+                "factory: my_package.module:make_lease",
+            ]
+        )
+    raise ValueError(f"unknown lease selection: {sel.lease}")
+
+
+def _tracing_block(sel: SetupSelection) -> str:
+    sub = sel.substitutions
+    if sel.tracing == "none":
+        return _indent_block(["kind: none"])
+    if sel.tracing == "staso":
+        api_key = sub.get("STASO_API_KEY_NAME", "STASO_API_KEY")
+        return _indent_block(
+            [
+                "kind: staso",
+                f"api_key_env: {api_key}",
+            ]
+        )
+    raise ValueError(f"unknown tracing selection: {sel.tracing}")
+
+
+def _framework_block(sel: SetupSelection) -> str:
+    return _indent_block([f"kind: {sel.framework}"])
+
+
+def _render_oak_yaml(manifest: Manifest, sel: SetupSelection) -> str:
+    template = _load_template("oak.yaml.tmpl")
     return _sub(
         template,
         {
-            "IMPORTS": imports_block,
-            "WORKSPACE_LINE": _reindent(workspace_line, 4),
-            "STATE_LINE": _reindent(state_line, 4),
-            "LEASE_LINE": _reindent(lease_line, 4),
-            "TRACE_LINE": _reindent(trace_line, 4),
-            "ATTACH_CALL": fw_opt.attach_call or "oak.session.attach",
-            "FRAMEWORK_LABEL": fw_opt.label,
-            "WORKSPACE_LABEL": workspace_opt.label,
-            "STATE_LABEL": state_opt.label,
-            "LEASE_LABEL": lease_opt.label,
-            "TRACE_LABEL": trace_opt.label,
+            "WORKSPACE_BLOCK": _workspace_block(sel),
+            "STATE_BLOCK": _state_store_block(sel),
+            "LEASE_BLOCK": _lease_block(sel),
+            "TRACE_BLOCK": _tracing_block(sel),
+            "FRAMEWORK_BLOCK": _framework_block(sel),
         },
     )
 
 
-def _render_pyproject_snippet(
-    manifest: Manifest, sel: SetupSelection
-) -> str:
+def _render_pyproject_snippet(manifest: Manifest, sel: SetupSelection) -> str:
     opts = _selected_options(manifest, sel)
     extras = _gather_extras(opts)
-    # Always include the base packages even if no extras pulled them in.
     base = ["oak-workspace", "oak-session"]
     deps: list[str] = []
     for item in base + extras:
@@ -257,9 +279,7 @@ def _render_pyproject_snippet(
     return _sub(template, {"DEPS_BLOCK": deps_block})
 
 
-def _render_env_example(
-    manifest: Manifest, sel: SetupSelection
-) -> str:
+def _render_env_example(manifest: Manifest, sel: SetupSelection) -> str:
     opts = _selected_options(manifest, sel)
     env_vars = _gather_env(opts, sel.substitutions)
     if not env_vars:
@@ -275,48 +295,17 @@ def _render_env_example(
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _render_docker_compose(
-    manifest: Manifest, sel: SetupSelection
-) -> str | None:
-    services: list[str] = []
-    if sel.state_store == "redis" or sel.lease in {"redis_shared", "redis_separate"}:
-        services.append(
-            "  redis:\n"
-            "    image: redis:7-alpine\n"
-            "    ports: [\"6379:6379\"]"
-        )
-    if sel.state_store == "postgres":
-        services.append(
-            "  postgres:\n"
-            "    image: postgres:16-alpine\n"
-            "    environment:\n"
-            "      POSTGRES_USER: oak\n"
-            "      POSTGRES_PASSWORD: oak\n"
-            "      POSTGRES_DB: oak\n"
-            "    ports: [\"5432:5432\"]"
-        )
-    if not services:
-        return None
-    template = _load_template("docker-compose.yml.tmpl")
-    return _sub(template, {"SERVICES": "\n".join(services)})
-
-
-def render_bundle(
-    manifest: Manifest, sel: SetupSelection
-) -> dict[str, str]:
+def render_bundle(manifest: Manifest, sel: SetupSelection) -> dict[str, str]:
     """Return a dict of {relative_filename: content}.
 
-    The docker-compose file is omitted entirely when no service is needed.
+    Bundle is fixed at three files: the declarative spec, a pyproject snippet,
+    and a .env.example. Infra provisioning (Redis, Postgres) is the user's job.
     """
-    bundle: dict[str, str] = {
-        "oak_setup.py": _render_oak_setup(manifest, sel),
+    return {
+        "oak.yaml": _render_oak_yaml(manifest, sel),
         "pyproject_snippet.toml": _render_pyproject_snippet(manifest, sel),
         ".env.example": _render_env_example(manifest, sel),
     }
-    compose = _render_docker_compose(manifest, sel)
-    if compose is not None:
-        bundle["docker-compose.yml"] = compose
-    return bundle
 
 
 def write_bundle(bundle: dict[str, str], dest: Path) -> list[Path]:

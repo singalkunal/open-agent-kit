@@ -29,24 +29,24 @@ ws = await oak.workspace.create(
 )
 ```
 
-## What this is
+### What this is
 
 `oak.workspace` is one `Workspace` Protocol that wraps every sandbox provider (local subprocess + E2B today; Daytona, Modal, Vercel, Cloudflare, Runloop, Browserbase via community packages) behind a small async surface plus capability flags. Pick a backend per environment. Your agent code never changes.
 
-The load-bearing addition for production: `Workspace.reconnect(handle)`. When a process restarts and a different process picks up a paused session, oak.session reads the workspace handle from the state store and calls `oak.workspace.reconnect()` — the E2B sandbox returns with filesystem state intact.
+The load-bearing addition for production: `Workspace.reconnect(handle)`. When a process restarts and a different process picks up a paused session, oak.session reads the workspace handle from the state store and calls `oak.workspace.reconnect()`. What survives the round trip is per-provider; consult `capabilities` on the returned workspace before assuming filesystem or process continuity.
 
-## Backends shipped in v0.1
+### Backends shipped in v0.1
 
 | Backend | Extra | Requires | `supports_reconnect` |
 |---|---|---|---|
-| `LocalWorkspace` | none | nothing — runs anywhere Python runs | False (process death = gone) |
+| `LocalWorkspace` | none | nothing - runs anywhere Python runs | False (process death = gone) |
 | `E2BWorkspace`   | `[e2b]` | `E2B_API_KEY` env var | True (E2B native `reconnect`) |
 
 `LocalWorkspace` is **not a security boundary**. It is the zero-infra default so `oak demo` works on a fresh machine. For untrusted LLM-generated code, use `E2BWorkspace`.
 
 Daytona / Modal / Vercel / Cloudflare / Runloop / Browserbase backends ship as community packages discovered via entry points.
 
-## Capability flags
+### Capability flags
 
 Every backend declares what it supports honestly:
 
@@ -60,7 +60,7 @@ ws.capabilities.max_idle                # timedelta or None
 
 Capability-dependent methods raise `CapabilityUnsupported` rather than silently no-op. No surprises in production.
 
-## Reconnect contract
+### Reconnect contract
 
 The `handle` property and `reconnect()` classmethod are how cross-process session resume works end-to-end:
 
@@ -78,7 +78,7 @@ ws_b = await oak.workspace.reconnect("e2b", handle)
 
 See [`docs/design/workspace.md`](../../docs/design/workspace.md) for the full reconnect contract + span attribute schema.
 
-## Provider-native lifetime config
+### Provider-native lifetime config
 
 oak does NOT run a background timer to pause/terminate idle workspaces. Pass the provider's native idle config at create time:
 
@@ -87,9 +87,9 @@ oak does NOT run a background timer to pause/terminate idle workspaces. Pass the
 ws = await oak.workspace.create("e2b", timeout_ms=900_000)   # E2B handles auto-terminate after 15min idle
 ```
 
-Belt-and-suspenders: `oak.session.attach()` exit handler additionally pauses the workspace on clean exit. Together, app-level clean shutdown + provider auto-terminate cover both happy path and orphan-cleanup.
+Belt-and-suspenders: `oak.session.attach()` exit handler also pauses the workspace on clean exit. Together, app-level clean shutdown + provider auto-terminate cover both happy path and orphan-cleanup.
 
-## Contract suite
+### Contract suite
 
 Custom backends pass the same tests oak's own backends do:
 
@@ -99,7 +99,7 @@ pytest --pyargs oak.workspace.tests.contract --backend my_pkg:MyWorkspace
 
 If green, your backend is oak-compliant. See [`docs/extending-oak.md`](../../docs/extending-oak.md) for the recipe.
 
-## Errors
+### Errors
 
 ```python
 from oak.workspace import (
@@ -111,6 +111,6 @@ from oak.workspace import (
 )
 ```
 
-## License
+### License
 
 Apache-2.0.

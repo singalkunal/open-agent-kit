@@ -1,13 +1,13 @@
 # Security Policy
 
-## Supported versions
+### Supported versions
 
 | Version | Status |
 |---|---|
 | 0.1.x | Supported |
 | < 0.1 | Not supported (pre-release; do not use in production) |
 
-## Reporting a vulnerability
+### Reporting a vulnerability
 
 If you find a security issue in oak, please report it privately. Do not file a public GitHub issue.
 
@@ -20,7 +20,7 @@ Include:
 - Your assessment of impact (information disclosure, code execution, denial of service, etc.)
 - A suggested fix if you have one
 
-## Disclosure timeline
+### Disclosure timeline
 
 We aim to:
 - Acknowledge receipt within 72 hours
@@ -29,7 +29,7 @@ We aim to:
 
 If a vulnerability is being actively exploited in the wild, we will accelerate.
 
-## Scope
+### Scope
 
 In scope:
 - The `oak-workspace`, `oak-session`, and `oak` packages in this repository
@@ -40,7 +40,7 @@ Out of scope:
 - Vulnerabilities in community-maintained adapter packages - report to that package's maintainer
 - Issues affecting the user's own code, system prompts, or domain logic - not oak's surface
 
-## What we will not do
+### What we will not do
 
 - Run a bug bounty program (until further notice)
 - Issue CVEs for issues in unsupported pre-0.1 versions

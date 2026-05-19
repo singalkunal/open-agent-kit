@@ -60,6 +60,7 @@ from .protocols import LeaseManager, SessionStateStore, TraceSource
 from .reconstruct import reconstruct_session
 from .state_stores.in_memory import InMemoryStateStore
 from .trace_sources.otlp import OTLPSpansTraceSource
+from .yaml_config import OakConfigError, configure_from_yaml
 
 if TYPE_CHECKING:
     from . import openhands as openhands
@@ -98,6 +99,7 @@ __all__ = [
     "LeaseManager",
     "Message",
     "OTLPSpansTraceSource",
+    "OakConfigError",
     "PendingAction",
     "PostgresStateStore",
     "RedisLease",
@@ -114,6 +116,7 @@ __all__ = [
     "WorkspaceUnreachable",
     "attach",
     "configure",
+    "configure_from_yaml",
     "continuation_prelude",
     "end",
     "messages_from_session",

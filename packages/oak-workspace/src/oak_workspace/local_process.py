@@ -105,9 +105,7 @@ class LocalProcessWorkspace:
             self.capabilities.max_lifetime is not None
             and timeout > self.capabilities.max_lifetime.total_seconds()
         ):
-            raise ValueError(
-                f"timeout={timeout}s exceeds capabilities.max_lifetime"
-            )
+            raise ValueError(f"timeout={timeout}s exceeds capabilities.max_lifetime")
 
         run_cwd = str(cwd) if cwd is not None else self.working_dir
         Path(run_cwd).mkdir(parents=True, exist_ok=True)
@@ -255,9 +253,7 @@ class LocalProcessWorkspace:
             self._terminated = True
             if self._cleanup and self._owns_workdir:
                 try:
-                    await asyncio.to_thread(
-                        shutil.rmtree, self.working_dir, True
-                    )
+                    await asyncio.to_thread(shutil.rmtree, self.working_dir, True)
                 except Exception:  # pragma: no cover - best-effort
                     pass
 
@@ -274,9 +270,7 @@ class LocalProcessWorkspace:
 
     def _check_alive(self) -> None:
         if self._terminated:
-            raise WorkspaceTerminated(
-                f"{type(self).__name__} has been terminated"
-            )
+            raise WorkspaceTerminated(f"{type(self).__name__} has been terminated")
 
     def _resolve_workspace_path(self, p: str | os.PathLike[str]) -> Path:
         path = Path(p)

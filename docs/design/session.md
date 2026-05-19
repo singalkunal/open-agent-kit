@@ -1,8 +1,8 @@
 # `oak.session` design
 
-The module that handles a session's lifecycle: bring it back to life on demand, hand it back ready to use, clean it up when done.
+The module that handles a session's lifecycle: resume it on demand, hand it back ready to use, clean it up when done.
 
-## The problem this solves
+### The problem this solves
 
 A session in production isn't bound to a single server. A user can close their browser and reconnect from a different device hours later, possibly to a different server in your cluster. Whichever server picks up the WebSocket needs to:
 
@@ -14,7 +14,7 @@ Without a library, every team writes the same three pieces of code, badly, every
 
 The cleanup counterpart is `end()` - terminate the sandbox, clear stored state, release the ownership claim.
 
-## Where state lives
+### Where state lives
 
 Three kinds of state, three different storage shapes. They don't overlap:
 
@@ -26,17 +26,27 @@ Three kinds of state, three different storage shapes. They don't overlap:
 
 Each backend is pluggable. You wire them once at startup; the rest of oak reads from this registry.
 
-## Public surface
+### Public surface
+
+There are two ways to wire `oak.session` at process startup:
+
+1. **`configure_from_yaml("oak.yaml")`** - the primary path. Reads a declarative spec, resolves env vars by name, instantiates the backends, registers them. The spec is the source of truth; change backends by editing `oak.yaml`, not Python.
+2. **`configure(state_store=..., trace=..., lease=...)`** - the underlying Python API. For advanced users and library integrators who want to construct the backend objects themselves.
+
+Both end up registering the same singleton; pick one.
 
 ```python
-# Process-level setup (called once at startup)
+# Primary: declarative
+oak.session.configure_from_yaml("oak.yaml")
+
+# Advanced: imperative (what configure_from_yaml calls internally)
 oak.session.configure(
     state_store: SessionStateStore | None = None,    # default: InMemoryStateStore
     trace: TraceSource | None = None,                # default: None (no history reconstruction)
     lease: LeaseManager | None = None,               # default: None (no ownership coordination)
 )
 
-# Per-session lifecycle
+# Per-session lifecycle (same in either case)
 async with oak.session.attach(
     session_id: str,
     *,
@@ -50,7 +60,73 @@ async with oak.session.attach(
 await oak.session.end(session_id: str) -> None
 ```
 
-### `AttachedSession`
+#### The `oak.yaml` spec
+
+The YAML file is a declarative description of the backends oak should construct. Shape:
+
+```yaml
+version: 1
+
+workspace:
+  kind: e2b                                # local | e2b
+  api_key_env: E2B_API_KEY
+  idle_timeout_ms: 900000
+
+state_store:
+  kind: redis                              # in_memory | redis | custom
+  url_env: REDIS_URL
+
+lease:
+  kind: redis                              # redis | in_memory | none | custom
+  url_env: REDIS_URL
+  ttl_seconds: 30
+
+tracing:
+  kind: staso                              # none | staso
+  api_key_env: STASO_API_KEY
+
+framework:
+  kind: openhands
+```
+
+Rules:
+
+- **`version: 1` is mandatory.** Future versions bump the integer.
+- **Env vars are referenced by name, never by value.** Keys ending in `_env` (e.g. `api_key_env`, `url_env`) point at environment variable names. Secrets stay in the environment; the YAML is safe to commit.
+- **Missing env vars fail fast.** If `STASO_API_KEY` is referenced but unset, `configure_from_yaml` raises a clear error at configure time, not at the first request.
+- **`kind: custom` accepts a factory.** For `state_store` and `lease`, you can wire any class:
+
+  ```yaml
+  state_store:
+    kind: custom
+    factory: my_pkg.stores:DynamoStateStore
+  ```
+
+  The factory is `package.module:callable_name`. It's invoked with the rest of the section's keys as kwargs.
+- **`workspace` describes the default factory.** `oak.session.configure_from_yaml` does not boot a workspace; it installs a default `workspace_factory` that `attach()` will use unless the caller passes their own.
+- **`framework` selects which per-framework adapter is the default.** If only one is installed, this can be omitted.
+
+#### What `configure_from_yaml` does internally
+
+```
+configure_from_yaml(path):
+  1. Load and parse the YAML.
+  2. Validate version == 1.
+  3. For each section, resolve env vars (read os.environ[<name>] for every *_env key);
+     raise ConfigError listing all missing vars together.
+  4. Instantiate backends:
+       - state_store via the built-in kind table or the `factory:` entry point
+       - lease via the same mechanism
+       - trace via the built-in kind table or the entry-point group
+       - workspace factory closes over the kind + config
+  5. Call configure(state_store=..., trace=..., lease=...) under the hood.
+  6. Stash the workspace factory + framework choice on the module singleton
+     so attach() can use them as defaults.
+```
+
+The imperative `configure(...)` stays the unchanging contract underneath; `configure_from_yaml` is a convenience that builds the same objects from a spec.
+
+#### `AttachedSession`
 
 ```python
 @dataclass
@@ -70,7 +146,7 @@ class AttachedSession:
     extra: dict[str, Any]
 ```
 
-### `SessionState`
+#### `SessionState`
 
 ```python
 @dataclass
@@ -87,7 +163,7 @@ class Message:
     cache_breakpoint: bool = False           # marks KV-cache stable-prefix boundary
 ```
 
-## `attach()` semantics
+### `attach()` semantics
 
 ```
 [OAK] attach(session_id) does, in order:
@@ -126,7 +202,7 @@ class Message:
      └─ Release lease (if held)
 ```
 
-## `end()` semantics
+### `end()` semantics
 
 ```
 [OAK] end(session_id) does:
@@ -140,9 +216,9 @@ class Message:
 
 `end()` is idempotent. Calling it on an already-ended session is a no-op.
 
-## Backend Protocols
+### Backend Protocols
 
-### `SessionStateStore`
+#### `SessionStateStore`
 
 ```python
 class SessionStateStore(Protocol):
@@ -170,7 +246,7 @@ Reference impls (oak ships):
 
 User adds custom backends by implementing the Protocol; community packages register via entry points.
 
-### `TraceSource`
+#### `TraceSource`
 
 ```python
 class TraceSource(Protocol):
@@ -203,7 +279,7 @@ oak.session.configure(
 
 If a user prefers OpenLLMetry or hand-rolled OTel emission, they wire emission themselves and pass a TraceSource that only does the read side.
 
-### `LeaseManager` (internal-by-default)
+#### `LeaseManager` (internal-by-default)
 
 ```python
 class LeaseManager(Protocol):
@@ -218,10 +294,10 @@ Reference impls:
 - `InMemoryLease` - default if user enables but doesn't pick a backend
 - `RedisLease` - `[redis]` extra; production multi-process
 
-## Context helpers (stateless functions)
+### Context helpers (stateless functions)
 
 ```python
-# Extract prior conversation from rehydrated session
+# Extract prior conversation from the resumed session
 oak.session.messages_from_session(attached) -> list[Message]
 
 # Notice generators - return string or None based on session status
@@ -237,7 +313,7 @@ oak.session.render.for_langgraph(messages) -> dict
 
 These don't compete with LangChain Prompts, Mirascope, or DSPy. Bring your system prompt as a string; oak's helpers handle the session-aware notice generation and message-list rendering.
 
-## Per-framework wrappers
+### Per-framework wrappers
 
 Each framework gets a sub-namespace with the same three-level shape:
 
@@ -249,11 +325,11 @@ oak.session.<framework>/
   WorkspaceAdapter                                # for Tier 3 escape (direct upstream usage)
 ```
 
-v0.1 ships **OpenHands** first (Staso dogfoods it). Others land as adapter packages with the same shape.
+The shipped reference wrapper is **OpenHands**. Other frameworks land as adapter packages with the same shape.
 
-### `oak.session.openhands` (v0.1)
+#### `oak.session.openhands`
 
-#### High-level - `attach()`
+##### High-level - `attach()`
 
 ```python
 # [USER]
@@ -284,7 +360,7 @@ Internally, `openhands.attach`:
 3. Calls `build_session(attached, agent=agent, initial_messages=messages, ...)`
 4. Yields the `OpenHandsSession` wrapper
 
-#### Mid-level - `build_session()`
+##### Mid-level - `build_session()`
 
 ```python
 # [USER] - custom message assembly
@@ -304,7 +380,7 @@ async with oak.session.attach(session_id, workspace_factory=...) as attached:
     result = await session.run_turn(text)
 ```
 
-#### Wrapper class - `OpenHandsSession`
+##### Wrapper class - `OpenHandsSession`
 
 Composition over inheritance. Holds upstream `LocalConversation` as `.conv`; provides async methods and result extraction; exposes upstream for escape-hatch access.
 
@@ -338,7 +414,7 @@ class OpenHandsSession:
 
 **Why composition over inheritance.** The old fork's `AsyncLocalConversation` extended `LocalConversation`. That couples to upstream's internal class hierarchy. Composition (`.conv` member) only depends on upstream's public method signatures, which evolve more carefully.
 
-#### Low-level - direct upstream usage (Tier 3 escape)
+##### Low-level - direct upstream usage (Tier 3 escape)
 
 ```python
 # [USER] full control; oak provides only the workspace adapter
@@ -351,7 +427,7 @@ async with oak.session.attach(session_id, workspace_factory=...) as attached:
     await asyncio.to_thread(conv.run)
 ```
 
-## Three-tier pluggability - applied
+### Three-tier pluggability - applied
 
 | Concern | Tier 1 (backend plug) | Tier 2 (behavior knob) | Tier 3 (full custom) |
 |---|---|---|---|
@@ -365,7 +441,7 @@ async with oak.session.attach(session_id, workspace_factory=...) as attached:
 | Reconstruction | `reconstructor: Callable` (advanced) | - | pass `attached.state` to user's own logic |
 | Notice text | `oak.session.configure(notice_text={"workspace_reset": "your text"})` | - | don't call oak's helpers; write your own |
 
-## Error handling matrix
+### Error handling matrix
 
 | Failure | Severity | Default behavior | Override |
 |---|---|---|---|
@@ -380,15 +456,40 @@ async with oak.session.attach(session_id, workspace_factory=...) as attached:
 
 Every status field is observable. No silent surprises.
 
-## Quickstart
+### Quickstart
+
+#### Primary path - YAML
+
+`oak.yaml`:
+
+```yaml
+version: 1
+
+workspace:
+  kind: e2b
+  api_key_env: E2B_API_KEY
+  idle_timeout_ms: 900000
+
+state_store:
+  kind: redis
+  url_env: REDIS_URL
+
+lease:
+  kind: redis
+  url_env: REDIS_URL
+  ttl_seconds: 30
+
+tracing:
+  kind: staso
+  api_key_env: STASO_API_KEY
+
+framework:
+  kind: openhands
+```
 
 ```python
-# [USER] one-time setup at process startup
-oak.session.configure(
-    state_store=oak.session.RedisStateStore(redis=redis_client),
-    trace=oak.session.StasoTraceSource(api_key=os.environ["STASO_API_KEY"]),
-    lease=oak.session.RedisLease(redis=redis_client),
-)
+# [USER] one-time setup at process startup (e.g. FastAPI lifespan)
+oak.session.configure_from_yaml("oak.yaml")
 
 # [USER] per-request handler
 async def handle_user_message(session_id: str, user_text: str):
@@ -400,7 +501,6 @@ async def handle_user_message(session_id: str, user_text: str):
             system_message="<your system prompt>",
         ),
         system_prompt="<your system prompt>",                    # [USER]
-        workspace_factory=lambda: oak.workspace.create("e2b"),
         on_workspace_lost="boot_fresh",
     ) as session:
         # [OAK wrapper] drives upstream LocalConversation non-blocking under the hood
@@ -419,7 +519,33 @@ async def handle_user_message(session_id: str, user_text: str):
         await oak.session.end(session_id)
 ```
 
-## Dependencies
+Bringing the infra (Redis, sandbox provider, tracing backend) is your call - local containers, k8s, managed cloud, whatever fits.
+
+#### Advanced path - imperative
+
+Library integrators and users who want to construct backends in Python can call `configure(...)` directly with the same effect:
+
+```python
+# [USER] one-time setup at process startup
+oak.session.configure(
+    state_store=oak.session.RedisStateStore(redis=redis_client),
+    trace=oak.session.StasoTraceSource(api_key=os.environ["STASO_API_KEY"]),
+    lease=oak.session.RedisLease(redis=redis_client),
+)
+
+# Per-request handler is identical, except attach() needs an explicit
+# workspace_factory because configure() did not register one:
+async with oak.session.openhands.attach(
+    session_id,
+    agent=...,
+    system_prompt=...,
+    workspace_factory=lambda: oak.workspace.create("e2b"),
+    on_workspace_lost="boot_fresh",
+) as session:
+    ...
+```
+
+### Dependencies
 
 ```toml
 [project]
@@ -445,14 +571,14 @@ all = ["oak-session[redis,postgres,staso,langfuse,phoenix,logfire,openhands]"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "mypy>=1.10", "ruff>=0.5"]
 ```
 
-## Tests
+### Tests
 
 - Contract tests for each Protocol (state_store, trace_source, lease) - runnable against any user-supplied backend
 - Reference-impl unit tests for InMemory backends (no external deps)
 - Integration tests for Redis backend (skip unless `REDIS_URL` is set)
 - Per-framework wrapper tests (skip unless framework SDK is installed)
 
-## Open risks
+### Open risks
 
 - **OpenHands API surface evolution** - composition reduces brittleness but doesn't eliminate it; CI runs against OH latest weekly
 - **OTel `gen_ai.*` semconv evolution** - semconv is in active development; oak pins a snapshot and ships migration helpers when major changes land

@@ -13,9 +13,7 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip(
-    "openhands.sdk", reason="openhands SDK not installed; skipping callbacks test"
-)
+pytest.importorskip("openhands.sdk", reason="openhands SDK not installed; skipping callbacks test")
 
 from oak_session.models import AttachedSession, SessionState
 from oak_session.openhands import build_session

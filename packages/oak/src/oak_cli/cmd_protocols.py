@@ -92,9 +92,7 @@ def _protocol_payload(name: str, proto: Any) -> dict[str, Any]:
     return {
         "name": name,
         "module": getattr(proto, "__module__", "?"),
-        "methods": [
-            {"name": n, "signature": s, "doc": d} for (n, s, d) in _methods(proto)
-        ],
+        "methods": [{"name": n, "signature": s, "doc": d} for (n, s, d) in _methods(proto)],
         "capability_flags": _discover_capability_flags(proto),
     }
 

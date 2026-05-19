@@ -118,14 +118,10 @@ def reconstruct_session(spans: list[Any]) -> SessionState:
                         else {}
                     ),
                     result=(
-                        str(attrs["gen_ai.tool.result"])
-                        if "gen_ai.tool.result" in attrs
-                        else None
+                        str(attrs["gen_ai.tool.result"]) if "gen_ai.tool.result" in attrs else None
                     ),
                     error=(
-                        str(attrs["gen_ai.tool.error"])
-                        if "gen_ai.tool.error" in attrs
-                        else None
+                        str(attrs["gen_ai.tool.error"]) if "gen_ai.tool.error" in attrs else None
                     ),
                 )
             )

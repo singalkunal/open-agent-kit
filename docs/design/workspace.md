@@ -2,13 +2,13 @@
 
 `oak.workspace` is the sandbox-abstraction layer. It runs commands, moves files, and exposes lifecycle methods (pause, resume, terminate, reconnect) when a backend supports them. The reconnect capability is what makes cross-process resume work end-to-end with `oak.session`.
 
-## Purpose
+### Purpose
 
-Production agents run model-chosen tools somewhere. Local subprocesses work for demos. Docker, E2B, Daytona, Modal, or any other sandbox provider works for real workloads. The agent loop should not change when the backend changes - and a process that picks up a paused session should be able to reconnect to the existing sandbox without losing filesystem state.
+Production agents need a sandbox for their tool calls - the place where the agent's actions execute (shell commands, file edits, code). Local subprocesses work for demos. Docker, E2B, Daytona, Modal, or any other sandbox provider works for real workloads. The agent loop should not change when the backend changes, and a process that picks up a paused session should be able to reconnect to the existing sandbox. What persists across that reconnect (filesystem, in-flight processes, network state) is per-provider; the Protocol exposes the round trip and capability flags describe what each backend guarantees.
 
-`LocalWorkspace` and `E2BWorkspace` are the v0.1 targets. Daytona / Modal / Vercel / Cloudflare adapters come from the community via entry-point discovery.
+`LocalWorkspace` and `E2BWorkspace` are the shipped reference backends. Daytona / Modal / Vercel / Cloudflare adapters come from the community via entry-point discovery.
 
-## Public API
+### Public API
 
 ```python
 # oak/workspace/protocol.py
@@ -76,15 +76,18 @@ class Workspace(Protocol):
     ) -> FileOperationResult: ...
 
     async def pause(self) -> None:
-        """Pause the sandbox so it stops consuming compute but state is preserved.
-        Idempotent. CapabilityUnsupported if supports_reconnect is False
-        (a workspace that can't be reconnected to can't meaningfully pause)."""
+        """Mark the sandbox as not currently in use so a future caller can resume it.
+        What persists across the pause boundary is per-provider; consult
+        `capabilities`. Idempotent. CapabilityUnsupported if
+        supports_reconnect is False (pausing a workspace that can't be
+        reconnected to is meaningless)."""
         ...
 
     async def terminate(self) -> None:
-        """Destroy the sandbox. State NOT preserved. After this, all other
-        methods raise WorkspaceTerminated. Idempotent. Best-effort (swallows
-        provider errors and logs them)."""
+        """End the sandbox's life. After this, all other methods raise
+        WorkspaceTerminated. Idempotent. Best-effort (swallows provider
+        errors and logs them). What gets released and cleaned up is
+        per-provider."""
         ...
 
     async def snapshot(self) -> str:
@@ -155,9 +158,9 @@ class WorkspaceTimeout(WorkspaceError):
     """Raised when execute() exceeds its timeout."""
 ```
 
-## Reconnect contract
+### Reconnect contract
 
-Reconnect is THE feature that makes cross-process session resume work end-to-end. Without it, every process restart = lost filesystem state = re-bootstrap.
+Reconnect is THE feature that makes cross-process session resume work end-to-end. Without it, every process restart means a fresh sandbox and a re-bootstrap from zero. What survives the reconnect is per-provider; the Protocol exposes the round trip, and capability flags describe each backend's guarantees.
 
 ```python
 # [USER] Day 1, Process A
@@ -178,7 +181,7 @@ The handle is whatever the provider's SDK needs for `reconnect()`. For E2B it's 
 
 **The handle must be secret-free.** Auth is reapplied via the provider's already-configured client at reconnect time (E2B API key in env, etc.). Handle goes into both the state_store AND the OTel `workspace.boot` span attributes - neither is a safe place for credentials.
 
-## Span attribute schema (long-term wire format promise)
+### Span attribute schema (long-term wire format promise)
 
 When a workspace boots, the adapter emits an OTel span named `workspace.boot` with these attributes:
 
@@ -194,7 +197,7 @@ A `workspace.reconnect` span is emitted similarly when reconnect succeeds.
 
 This schema is a long-term promise per Principle #5 (stable wire formats). Tools downstream of oak's tracing can rely on it for forensic recovery (e.g., "the last known sandbox handle for session X" is reachable from the trace store as a fallback to the state store).
 
-## Capability binding
+### Capability binding
 
 | Method | Required capability | Raises if False |
 |---|---|---|
@@ -204,7 +207,7 @@ This schema is a long-term promise per Principle #5 (stable wire formats). Tools
 
 Backends without reconnect (e.g., a killed local Docker container is gone) set `supports_reconnect=False`. Callers branch on the flag.
 
-## Provider-native lifetime config - no oak timer
+### Provider-native lifetime config - no oak timer
 
 oak does NOT run a background timer to pause/terminate idle workspaces. The provider's native idle config is the source of truth for "auto-pause/terminate on inactivity":
 
@@ -219,14 +222,14 @@ oak does NOT run a background timer to pause/terminate idle workspaces. The prov
 
 `oak.workspace.create(provider, **config)` passes config through to the provider SDK. User configures the provider's native timeout; provider handles it. No oak watcher needed.
 
-The `oak.session.attach()` exit handler additionally calls `workspace.pause()` on clean exit (default `exit_workspace="pause"`). Belt-and-suspenders: app-level pause on clean exit + provider native timeout on orphaned sessions.
+The `oak.session.attach()` exit handler also calls `workspace.pause()` on clean exit (default `exit_workspace="pause"`). Belt-and-suspenders: app-level pause on clean exit + provider native timeout on orphaned sessions.
 
-## Backends
+### Backends
 
 | Adapter | Capability flags | Shipped |
 |---|---|---|
-| `LocalWorkspace` | `supports_reconnect=False` (process death = gone), host filesystem | v0.1 |
-| `E2BWorkspace` | `supports_reconnect=True`, `native_idle_timeout=True`, `max_idle=24h` | v0.1 via `[e2b]` extra |
+| `LocalWorkspace` | `supports_reconnect=False` (process death = gone), host filesystem | reference (core) |
+| `E2BWorkspace` | `supports_reconnect=True`, `native_idle_timeout=True`, `max_idle=24h` | reference via `[e2b]` extra |
 | `DaytonaWorkspace` | `supports_reconnect=True`, `supports_snapshot=True` | community |
 | `ModalWorkspace` | `supports_reconnect=True`, `supports_gpu=True` | community |
 | `VercelSandboxWorkspace` | `supports_reconnect=True` | community |
@@ -240,7 +243,7 @@ Community backends register via entry points:
 daytona = "oak_workspace_daytona:DaytonaWorkspace"
 ```
 
-## Dependencies
+### Dependencies
 
 ```toml
 [project]
@@ -260,7 +263,7 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23", "mypy>=1.10", "ruff>=0.5"]
 
 No cloud SDK is required for the local path.
 
-## Quickstart
+### Quickstart
 
 ```python
 import asyncio
@@ -291,13 +294,13 @@ ws = await oak.workspace.create(
 )
 ```
 
-## Tests
+### Tests
 
 - Contract tests for the `Workspace` Protocol (executable, file ops, capabilities, lifecycle, reconnect for backends that support it)
 - LocalWorkspace tests are unit tests (no external deps)
 - E2BWorkspace tests skip unless `E2B_API_KEY` is set
 
-## Open risks
+### Open risks
 
 - Reconnect semantics differ subtly per provider (E2B's pause vs Modal's function-ID lookup vs Daytona's workspace state) - capability flags + per-backend tests bound the surface
 - Span attribute schema changes are breaking; SemVer + deprecation window required

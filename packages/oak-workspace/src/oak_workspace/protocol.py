@@ -111,41 +111,55 @@ class Workspace(Protocol):
         ...
 
     async def pause(self) -> None:
-        """Pause the sandbox so it stops consuming compute but state is preserved.
+        """Mark the sandbox as not currently in use so a future caller can resume it.
 
-        Post-condition: subsequent execute() calls will block until resume().
+        Post-condition: subsequent execute() calls block until resume().
+        What persists across the pause boundary (filesystem, in-flight
+        processes, network state) is per-provider; consult
+        ``capabilities`` and the backend's own class docstring.
         Idempotent: calling pause() on an already-paused workspace is a no-op.
         Raises CapabilityUnsupported if capabilities.supports_reconnect is False
-        (a workspace that cannot be reconnected to cannot meaningfully pause -
-        pausing a thing you cannot resume is a no-op of nothing).
+        (pausing a workspace that cannot be reconnected to is meaningless).
         """
         ...
 
     async def resume(self) -> None:
-        """Resume a paused sandbox. Post-condition: execute() works again, state from
-        pre-pause is preserved. Idempotent: calling resume() on a running workspace
-        is a no-op. Raises if the workspace was terminated (use create() instead).
+        """Bring a paused workspace back into use in the current process.
+
+        Post-condition: execute() works again. What survived the pause is
+        per-provider; the resumed workspace MAY differ from its pre-pause
+        state in ways the backend documents (e.g. in-flight processes
+        gone, network sockets reset). Idempotent: calling resume() on a
+        running workspace is a no-op. Raises if the workspace was
+        terminated (use create() instead).
         """
         ...
 
     async def terminate(self) -> None:
-        """Destroy the sandbox unconditionally. State is NOT preserved. After terminate(),
-        all other methods raise WorkspaceTerminated. Idempotent: calling terminate()
-        on an already-terminated workspace is a no-op (does not raise). The implementation
-        SHOULD be best-effort. Log and swallow exceptions from the underlying provider
-        rather than propagating, since terminate() is most often called from cleanup paths
-        where the caller can't usefully handle a failure.
+        """End the sandbox's life. After terminate(), all other methods raise
+        WorkspaceTerminated. The implementation SHOULD be best-effort and
+        idempotent: calling terminate() on an already-terminated workspace is a
+        no-op (does not raise). What gets released and what gets cleaned up is
+        per-provider; the contract is only that the workspace is no longer
+        usable through this Protocol afterwards. Log and swallow exceptions
+        from the underlying provider rather than propagating, since
+        terminate() is most often called from cleanup paths where the caller
+        can't usefully handle a failure.
         """
         ...
 
     @classmethod
     async def reconnect(cls, handle: dict[str, Any]) -> Workspace:
-        """Re-attach to a paused / preserved sandbox by its serialized ``handle``.
+        """Bring a paused workspace back into use from its serialized ``handle``.
 
         Symmetric with the ``handle`` property: a handle obtained from
         ``ws.handle`` and persisted to oak.session's state_store can be
-        passed back here (possibly in a different process) to
-        obtain a working Workspace pointed at the same sandbox.
+        passed back here (possibly in a different process) to obtain a
+        working Workspace pointed at the same logical sandbox. What
+        survives the round trip (filesystem state, in-flight processes,
+        network sockets, GPU attachments) is per-provider; consult the
+        returned workspace's ``capabilities`` and the backend's own class
+        docstring for the concrete persistence contract.
 
         Raises ``CapabilityUnsupported`` (``capability='supports_reconnect'``)
         on backends whose capability flag is False.

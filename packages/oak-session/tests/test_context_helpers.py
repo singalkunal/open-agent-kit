@@ -45,9 +45,7 @@ def test_messages_from_session_returns_copy() -> None:
 def test_workspace_reset_notice_only_when_reset_happened() -> None:
     fresh = _attached()
     assert workspace_reset_notice(fresh) is None
-    rebooted = _attached(
-        workspace_status="boot_fresh", workspace_reconnect_error="sandbox gc'd"
-    )
+    rebooted = _attached(workspace_status="boot_fresh", workspace_reconnect_error="sandbox gc'd")
     notice = workspace_reset_notice(rebooted)
     assert notice is not None and "fresh sandbox" in notice
 
@@ -66,9 +64,7 @@ def test_partial_history_notice_only_for_partial_status() -> None:
 
 def test_notice_overrides_via_configure() -> None:
     configure(notice_text={"workspace_reset": "custom reset text"})
-    rebooted = _attached(
-        workspace_status="boot_fresh", workspace_reconnect_error="x"
-    )
+    rebooted = _attached(workspace_status="boot_fresh", workspace_reconnect_error="x")
     assert workspace_reset_notice(rebooted) == "custom reset text"
 
 

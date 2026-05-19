@@ -88,6 +88,8 @@ module = [
     "e2b_code_interpreter.*",
     "docker",
     "docker.*",
+    "yaml",
+    "yaml.*",
 ]
 ignore_missing_imports = true
 

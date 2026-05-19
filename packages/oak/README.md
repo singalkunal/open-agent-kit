@@ -10,7 +10,7 @@ oak protocols show Workspace     # methods + docstrings for one Protocol
 oak version
 ```
 
-## What `oak demo` does
+### What `oak demo` does
 
 Wires `oak.workspace.LocalWorkspace` + `oak.session.InMemoryStateStore` (no lease, no trace source) into a tiny scripted "agent" loop. No API keys, no Docker, no Redis required.
 
@@ -22,7 +22,7 @@ The "agent" is a deterministic stub (no LLM call) that exercises:
 
 Proves the wiring; not the intelligence. Bring your own model.
 
-## Install
+### Install
 
 ```bash
 # CLI + every sibling primitive at default versions
@@ -38,7 +38,7 @@ pip install oak
 pip install 'oak[openhands,e2b,redis,staso]'
 ```
 
-## Templates
+### Templates
 
 `oak init <name>` renders the `starter` template by default. The starter is a small FastAPI app that wires:
 - `oak.workspace.create("e2b", ...)` for the sandbox
@@ -48,6 +48,6 @@ pip install 'oak[openhands,e2b,redis,staso]'
 
 Additional templates land only when the roadmap demand gate is met.
 
-## License
+### License
 
 Apache-2.0.

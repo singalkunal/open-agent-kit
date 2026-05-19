@@ -120,8 +120,7 @@ class E2BWorkspace:
             from e2b_code_interpreter import AsyncSandbox
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError(
-                "E2BWorkspace requires the [e2b] extra: "
-                "pip install oak-workspace[e2b]"
+                "E2BWorkspace requires the [e2b] extra: pip install oak-workspace[e2b]"
             ) from exc
         kwargs: dict[str, Any] = {}
         if self._api_key is not None:
@@ -150,9 +149,7 @@ class E2BWorkspace:
             self.capabilities.max_lifetime is not None
             and timeout > self.capabilities.max_lifetime.total_seconds()
         ):
-            raise ValueError(
-                f"timeout={timeout}s exceeds capabilities.max_lifetime"
-            )
+            raise ValueError(f"timeout={timeout}s exceeds capabilities.max_lifetime")
         sb = await self._ensure_sandbox()
         workdir = str(cwd) if cwd is not None else self.working_dir
         with span(
@@ -316,8 +313,7 @@ class E2BWorkspace:
             from e2b_code_interpreter import AsyncSandbox
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError(
-                "E2BWorkspace requires the [e2b] extra: "
-                "pip install oak-workspace[e2b]"
+                "E2BWorkspace requires the [e2b] extra: pip install oak-workspace[e2b]"
             ) from exc
 
         # E2B has renamed this method between SDK versions. Try the
@@ -379,9 +375,7 @@ class E2BWorkspace:
 
     def _check_alive(self) -> None:
         if self._terminated:
-            raise WorkspaceTerminated(
-                f"{type(self).__name__} has been terminated"
-            )
+            raise WorkspaceTerminated(f"{type(self).__name__} has been terminated")
 
 
 __all__ = ["E2BWorkspace"]

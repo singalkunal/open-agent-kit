@@ -73,12 +73,7 @@ class InMemoryLease:
                 now = time.monotonic()
                 alive = existing is not None and existing[2] > now
                 # take the slot if free / dead / forced / owned-by-us
-                if (
-                    existing is None
-                    or not alive
-                    or force_reclaim
-                    or existing[0] == self._owner
-                ):
+                if existing is None or not alive or force_reclaim or existing[0] == self._owner:
                     generation = self._generations.get(session_id, 0) + 1
                     self._generations[session_id] = generation
                     acquired = time.time()
@@ -237,9 +232,7 @@ class RedisLease:
             raise LeaseHeld(session_id, owner=owner)
 
     async def release(self, session_id: str) -> None:
-        eval_call: Any = self._redis.eval(
-            _RELEASE_LUA, 1, _lease_key(session_id), self._owner
-        )
+        eval_call: Any = self._redis.eval(_RELEASE_LUA, 1, _lease_key(session_id), self._owner)
         await eval_call
 
 

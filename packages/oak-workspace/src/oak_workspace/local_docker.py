@@ -105,9 +105,7 @@ class LocalDockerWorkspace:
             ) from exc
         try:
             client = docker.from_env()
-            container = await asyncio.to_thread(
-                client.containers.get, container_id
-            )
+            container = await asyncio.to_thread(client.containers.get, container_id)
         except Exception as exc:  # noqa: BLE001 - docker errors vary
             raise WorkspaceUnreachable(
                 handle=handle,
@@ -168,9 +166,7 @@ class LocalDockerWorkspace:
             self.capabilities.max_lifetime is not None
             and timeout > self.capabilities.max_lifetime.total_seconds()
         ):
-            raise ValueError(
-                f"timeout={timeout}s exceeds capabilities.max_lifetime"
-            )
+            raise ValueError(f"timeout={timeout}s exceeds capabilities.max_lifetime")
         container = await self._ensure_container()
         workdir = str(cwd) if cwd is not None else self.working_dir
         with span(
@@ -195,9 +191,13 @@ class LocalDockerWorkspace:
                 raise WorkspaceTimeout(command=command, timeout=timeout) from exc
 
             exit_code = int(getattr(result, "exit_code", 0) or 0)
-            out_b, err_b = result.output if isinstance(result.output, tuple) else (
-                result.output,
-                b"",
+            out_b, err_b = (
+                result.output
+                if isinstance(result.output, tuple)
+                else (
+                    result.output,
+                    b"",
+                )
             )
             stdout = (out_b or b"").decode("utf-8", errors="replace")
             stderr = (err_b or b"").decode("utf-8", errors="replace")
@@ -261,9 +261,7 @@ class LocalDockerWorkspace:
             {ATTR_BACKEND: type(self).__name__, ATTR_DST_PATH: str(dst)},
         ) as s:
             try:
-                stream, _stat = await asyncio.to_thread(
-                    container.get_archive, str(src)
-                )
+                stream, _stat = await asyncio.to_thread(container.get_archive, str(src))
                 buf = io.BytesIO(b"".join(stream))
                 buf.seek(0)
                 dst.parent.mkdir(parents=True, exist_ok=True)
@@ -358,9 +356,7 @@ class LocalDockerWorkspace:
 
     def _check_alive(self) -> None:
         if self._terminated:
-            raise WorkspaceTerminated(
-                f"{type(self).__name__} has been terminated"
-            )
+            raise WorkspaceTerminated(f"{type(self).__name__} has been terminated")
 
 
 __all__ = ["LocalDockerWorkspace"]

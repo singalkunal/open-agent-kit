@@ -11,13 +11,13 @@ Each test runs against any backend implementing the Protocol. A custom backend m
 
 ---
 
-## `oak.workspace.tests.contract`
+### `oak.workspace.tests.contract`
 
 Run with: `pytest -m contract --backend my_module:MyWorkspaceClass`
 
 The `--backend` arg points to a `module:class` that the suite instantiates via `cls.create(working_dir="/tmp/contract-test")` (or equivalent factory) for each test.
 
-### Required tests (14)
+#### Required tests (14)
 
 ```python
 async def test_execute_simple_command(workspace):
@@ -86,7 +86,7 @@ async def test_boot_emits_otel_span(workspace, span_collector):
     workspace.image (if applicable). workspace.handle attribute MUST NOT contain secrets."""
 ```
 
-### Optional asserts (warnings, not failures)
+#### Optional asserts (warnings, not failures)
 
 ```python
 async def test_concurrent_execute_isolated(workspace):
@@ -102,11 +102,11 @@ async def test_capabilities_match_methods(workspace):
 
 ---
 
-## `oak.session.tests.contract.state_store`
+### `oak.session.tests.contract.state_store`
 
 Run with: `pytest -m contract --backend my_module:MyStateStoreClass`
 
-### Required tests (8)
+#### Required tests (8)
 
 ```python
 async def test_put_then_get_roundtrip(store):
@@ -142,7 +142,7 @@ async def test_values_serializable(store):
     put + get roundtrips it losslessly."""
 ```
 
-### Cross-process tests (durable backends only - Redis, Postgres, DynamoDB, etc.)
+#### Cross-process tests (durable backends only - Redis, Postgres, DynamoDB, etc.)
 
 ```python
 async def test_cross_process_visibility(store, second_store_instance):
@@ -155,13 +155,13 @@ async def test_survives_store_restart(store, restart_store):
 
 ---
 
-## `oak.session.tests.contract.trace_source`
+### `oak.session.tests.contract.trace_source`
 
 Run with: `pytest -m contract --backend my_module:MyTraceSourceClass`
 
 The `--backend` is instantiated with vendor-specific config via env vars or fixture.
 
-### Required tests (6)
+#### Required tests (6)
 
 ```python
 async def test_fetch_empty_session_returns_empty(source):
@@ -189,11 +189,11 @@ async def test_fetch_raises_on_backend_error(source, broken_backend):
 
 ---
 
-## `oak.session.tests.contract.lease`
+### `oak.session.tests.contract.lease`
 
 Run with: `pytest -m contract --backend my_module:MyLeaseClass`
 
-### Required tests (10)
+#### Required tests (10)
 
 ```python
 async def test_acquire_succeeds_when_unowned(lease):
@@ -238,7 +238,7 @@ async def test_force_reclaim_overrides_live_owner(lease, second_lease_instance):
     Subsequent A.renew() raises (A is no longer the owner)."""
 ```
 
-### Cross-process tests (durable backends only)
+#### Cross-process tests (durable backends only)
 
 ```python
 async def test_cross_process_lease_visibility(redis_backend):
@@ -250,7 +250,7 @@ async def test_lease_survives_process_a_crash(redis_backend):
 
 ---
 
-## How users invoke the contract suite against their own backend
+### How users invoke the contract suite against their own backend
 
 Documented in `extending-oak.md`. Quick form:
 
@@ -272,7 +272,7 @@ If all required tests pass, the backend is oak-compliant. Optional tests emit wa
 
 ---
 
-## How the suite ships
+### How the suite ships
 
 - Lives at `oak_<module>/tests/contract.py` (or `tests/contract/<protocol>.py` for multi-Protocol modules)
 - Marker: `@pytest.mark.contract` so users opting in run only contract tests
@@ -280,6 +280,6 @@ If all required tests pass, the backend is oak-compliant. Optional tests emit wa
 - Fixtures are parametrized via the `--backend` pytest option (`conftest.py` plumbing)
 - Docstrings ARE the spec, not just comments
 
-## Rule
+### Rule
 
 Do not weaken assertion docstrings casually. They are the behavior spec backend authors implement against.

@@ -85,8 +85,7 @@ def _resolve_provider(provider: str) -> type[Any]:
         mod = __import__(module_path, fromlist=[attr])
         return cast(type[Any], getattr(mod, attr))
     raise KeyError(
-        f"unknown workspace provider {provider!r}; "
-        f"known providers: {list_providers()}"
+        f"unknown workspace provider {provider!r}; known providers: {list_providers()}"
     )
 
 
@@ -120,8 +119,7 @@ def _emit_boot_span(
     if isinstance(region, str):
         attrs[ATTR_WS_REGION] = region
     image = (
-        handle.get("image")
-        or handle.get("template")
+        handle.get("image") or handle.get("template")
         if isinstance(handle, dict)
         else None
     )
@@ -174,9 +172,7 @@ async def reconnect(provider: str, handle: dict[str, Any]) -> _WorkspaceLike:
             reason=f"backend {cls.__name__!r} does not implement reconnect()",
         )
     instance: Any = await reconnect_fn(handle)
-    _emit_boot_span(
-        provider, cast(_WorkspaceLike, instance), span_name=SPAN_RECONNECT
-    )
+    _emit_boot_span(provider, cast(_WorkspaceLike, instance), span_name=SPAN_RECONNECT)
     return cast(_WorkspaceLike, instance)
 
 

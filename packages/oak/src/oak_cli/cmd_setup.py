@@ -1,9 +1,20 @@
-"""``oak setup``: interactive wizard that generates a backend wiring bundle.
+"""``oak setup``: interactive wizard that generates a declarative spec bundle.
 
-Asks five questions (workspace, state store, lease, tracing, framework),
-substitutes the user's picks into ``oak_setup.py``, ``pyproject_snippet.toml``,
-``.env.example`` and (when relevant) ``docker-compose.yml``. The CLI uses
-typer's built-in ``prompt`` / ``confirm`` to avoid adding a new dep.
+Asks five questions (workspace, state store, lease, tracing, framework) and
+emits ``oak.yaml``, ``pyproject_snippet.toml``, ``.env.example``. The user
+loads the spec at startup with ``oak.session.configure_from_yaml(...)``.
+
+The menu is restricted to backends ``configure_from_yaml`` can construct on
+its own: ``local`` / ``e2b`` workspaces; ``in_memory`` / ``redis`` /
+``custom`` state stores; ``redis_shared`` / ``redis_separate`` /
+``in_memory`` / ``none`` / ``custom`` leases; ``none`` / ``staso`` tracing.
+Other valid YAML kinds (``postgres`` state store; ``langfuse`` / ``phoenix``
+/ ``logfire`` / ``otlp`` tracing) require a user-supplied callable the
+loader cannot synthesize, so the wizard does not offer them. Hand-write a
+YAML referencing them only if you wire the callable yourself.
+
+Provisioning Redis is the user's responsibility; the wizard does not emit
+docker-compose.
 """
 
 from __future__ import annotations
@@ -23,8 +34,8 @@ from .setup_manifest import (
 from .setup_manifest.manifest import write_bundle
 
 WORKSPACE_ORDER = ("local", "e2b")
-STATE_ORDER = ("in_memory", "redis", "postgres", "custom")
-TRACE_ORDER = ("none", "staso", "langfuse", "phoenix", "logfire", "otlp")
+STATE_ORDER = ("in_memory", "redis", "custom")
+TRACE_ORDER = ("none", "staso")
 FRAMEWORK_ORDER = ("openhands",)
 
 
@@ -59,17 +70,13 @@ def _pick(
         console.print(f"[red]out of range; pick 1-{len(pairs)}[/]")
 
 
-def _prompt_workspace(
-    console: Console, manifest: Manifest, subs: dict[str, str]
-) -> str:
+def _prompt_workspace(console: Console, manifest: Manifest, subs: dict[str, str]) -> str:
     key = _pick(console, "Workspace provider", manifest.workspace, WORKSPACE_ORDER)
     if key == "e2b":
         subs["E2B_API_KEY_NAME"] = typer.prompt(
             "  env var name for E2B API key", default="E2B_API_KEY"
         )
-        timeout_s = typer.prompt(
-            "  E2B idle timeout (seconds)", default="900"
-        )
+        timeout_s = typer.prompt("  E2B idle timeout (seconds)", default="900")
         try:
             subs["E2B_TIMEOUT_MS"] = str(int(timeout_s) * 1000)
         except ValueError:
@@ -77,17 +84,11 @@ def _prompt_workspace(
     return key
 
 
-def _prompt_state_store(
-    console: Console, manifest: Manifest, subs: dict[str, str]
-) -> str:
+def _prompt_state_store(console: Console, manifest: Manifest, subs: dict[str, str]) -> str:
     key = _pick(console, "State store", manifest.state_store, STATE_ORDER)
     if key == "redis":
         subs["REDIS_URL_NAME"] = typer.prompt(
             "  env var name for Redis connection", default="REDIS_URL"
-        )
-    elif key == "postgres":
-        subs["PG_URL_NAME"] = typer.prompt(
-            "  env var name for Postgres connection", default="DATABASE_URL"
         )
     return key
 
@@ -122,9 +123,7 @@ def _prompt_lease(
         console.print(f"[red]out of range; pick 1-{len(pairs)}[/]")
 
     if key == "redis_shared" and state_store == "redis":
-        reuse = typer.confirm(
-            "  reuse the same Redis client as the state store?", default=True
-        )
+        reuse = typer.confirm("  reuse the same Redis client as the state store?", default=True)
         if not reuse:
             key = "redis_separate"
     if key == "redis_separate":
@@ -144,52 +143,34 @@ def _prompt_lease(
     return key
 
 
-def _prompt_tracing(
-    console: Console, manifest: Manifest, subs: dict[str, str]
-) -> str:
+def _prompt_tracing(console: Console, manifest: Manifest, subs: dict[str, str]) -> str:
     key = _pick(console, "Tracing backend", manifest.tracing, TRACE_ORDER)
-    env_name_map = {
-        "staso": ("STASO_API_KEY_NAME", "STASO_API_KEY"),
-        "langfuse": ("LANGFUSE_API_KEY_NAME", "LANGFUSE_PUBLIC_KEY"),
-        "phoenix": ("PHOENIX_API_KEY_NAME", "PHOENIX_API_KEY"),
-        "logfire": ("LOGFIRE_API_KEY_NAME", "LOGFIRE_TOKEN"),
-    }
-    if key in env_name_map:
-        sub_key, default_name = env_name_map[key]
-        subs[sub_key] = typer.prompt(
-            f"  env var name for {key} API key", default=default_name
+    if key == "staso":
+        subs["STASO_API_KEY_NAME"] = typer.prompt(
+            "  env var name for staso API key", default="STASO_API_KEY"
         )
     return key
 
 
-def _prompt_framework(
-    console: Console, manifest: Manifest
-) -> str:
+def _prompt_framework(console: Console, manifest: Manifest) -> str:
     return _pick(console, "Agent framework", manifest.framework, FRAMEWORK_ORDER)
 
 
-def _print_summary(
-    console: Console, written: list[Path], dest: Path
-) -> None:
+def _print_summary(console: Console, written: list[Path], dest: Path) -> None:
     console.print("")
     for path in written:
         console.print(f"[green][OK][/] wrote {path}")
     console.print("\n[bold]Next steps:[/]")
-    console.print(f"  1. Copy {dest}/oak_setup.py into your project")
-    console.print(
-        "  2. Add the pyproject snippet to your pyproject.toml and run `uv sync`"
-    )
+    console.print(f"  1. Copy {dest}/oak.yaml to your repo root")
+    console.print("  2. Add the pyproject snippet to your pyproject.toml and run `uv sync`")
     console.print("  3. Fill in .env from .env.example")
-    if (dest / "docker-compose.yml").exists():
-        console.print(
-            "  4. `docker compose up -d` for local Redis/Postgres "
-            "(skip if you have them elsewhere)"
-        )
+    console.print(
+        '  4. Call `oak.session.configure_from_yaml("oak.yaml")` in your '
+        "app's lifespan (e.g. FastAPI startup)"
+    )
 
 
-def run_setup(
-    *, output_dir: str | None = None, non_interactive: bool = False
-) -> int:
+def run_setup(*, output_dir: str | None = None, non_interactive: bool = False) -> int:
     """Run the interactive wizard.
 
     When ``non_interactive`` is set we never prompt and just return the
@@ -207,10 +188,7 @@ def run_setup(
             framework="openhands",
         )
     else:
-        console.print(
-            "[bold]oak setup[/] - interactive wiring for "
-            "oak.workspace + oak.session\n"
-        )
+        console.print("[bold]oak setup[/] - interactive wiring for oak.workspace + oak.session\n")
         subs: dict[str, str] = {}
         workspace = _prompt_workspace(console, manifest, subs)
         state_store = _prompt_state_store(console, manifest, subs)

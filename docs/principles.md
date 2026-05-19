@@ -4,7 +4,7 @@ oak ships mechanism. You ship policy.
 
 These nine rules keep the packages useful when users bring their own agent loop, backend choices, tenant model, and session model.
 
-## 1. `session_id: str` is the only universal coupling
+### 1. `session_id: str` is the only universal coupling
 
 Every runtime primitive keys off a session ID string. There is no `OakSession`, `OakContext`, or required event envelope.
 
@@ -19,7 +19,7 @@ If your app has parent sessions, child sessions, retries, or short-lived sub-ses
 
 What is explicitly NOT in oak: conversation state, message taxonomy, agent loop, tool registry, prompt templating. Those belong to your framework and your product.
 
-## 2. Small stable cores, explicit escape hatches
+### 2. Small stable cores, explicit escape hatches
 
 Each Protocol should stay small enough that backend authors can implement it without adopting oak internals. Each backend exposes capability flags. Wrappers expose `.underlying` / `.conv` / `.handle` for the raw vendor client.
 
@@ -35,7 +35,7 @@ Today's escape hatches:
 | `oak.workspace.Workspace` | `.handle` + `.underlying` (where applicable) | provider's raw client / sandbox ID |
 | `oak.session.AttachedSession` | `.state`, `.workspace`, `.lease`, `.extra` | direct access; oak doesn't gate them |
 
-## 3. Hooks beat forks
+### 3. Hooks beat forks
 
 Users should compose primitives and inject handlers at named boundaries. They should not need to subclass core classes or fork oak.
 
@@ -48,13 +48,13 @@ Current hook-shaped surfaces:
 | `oak.session.attach()` | `workspace_factory=` callable for fresh-boot; `on_workspace_lost=` policy |
 | `oak.session.openhands.attach()` | `context_composer=` callback for full-customization context assembly; `session_class=` for subclass injection |
 
-## 4. No god objects, no policy
+### 4. No god objects, no policy
 
 There is no `OakAgent` or `OakRuntime`. No class owns "the agent." No class owns "the loop."
 
 Convenience wrappers are suspect when they combine modules and choose policy. The per-framework `attach()` is convenience but stays opinionated only on assembly mechanics (message ordering, workspace wiring). It never decides domain logic (what to put in the system prompt, when a session is "done," which tools to bind).
 
-## 5. Stable wire formats beat stable APIs
+### 5. Stable wire formats beat stable APIs
 
 Python APIs can change under SemVer. Wire formats need stronger care.
 
@@ -67,7 +67,7 @@ Long-term promises include:
 
 Changing one requires a deprecation window, a migration path when data is affected, and a clear release note.
 
-## 6. Capability flags plus entry-point discovery
+### 6. Capability flags plus entry-point discovery
 
 Adapters declare what they support.
 
@@ -92,13 +92,13 @@ honeycomb = "oak_session_honeycomb:HoneycombTraceSource"
 dynamodb = "oak_session_dynamodb:DynamoStateStore"
 ```
 
-## 7. Contract tests are the safety net
+### 7. Contract tests are the safety net
 
 Every package with a Protocol ships contract tests. A custom backend that passes them is oak-compatible.
 
 The docstrings in the contract tests are part of the spec. Keep them concrete enough that backend authors know what behavior to match.
 
-## 8. Multi-vendor coexistence is first-class
+### 8. Multi-vendor coexistence is first-class
 
 Multiple backends of the same kind can run in the same process. Two `Workspace` instances on different sandbox providers. Three `TraceSource` adapters across vendors. Per-agent, per-tenant, or per-call-site backend selection is config in user code.
 
@@ -112,21 +112,21 @@ oak does NOT ship federation, fallback chains, or routing. Those compose above t
 
 This is the OpenRouter pitch applied to the agent runtime stack: switching costs drop to "swap the adapter argument" so teams actually evaluate alternatives.
 
-## 9. Describe mechanism, not application
+### 9. Describe mechanism, not application
 
 Modules are named for what they do, not for any one user's application of them.
 
 | Bad framing | Good framing |
 |---|---|
 | "Multi-process session ownership" | "Exclusive ownership lease" |
-| "Resume Staso SRE agent investigations" | "Rehydrate session-keyed state from any backend" |
+| "Resume Staso SRE agent investigations" | "Resumable session-keyed state from any backend" |
 | "Sandbox for the SRE agent" | "Sandbox abstraction with reconnect" |
 
 The Staso SRE agent is one user. Others (research agents, code agents, long-running tasks, distributed debugging) apply the same primitives differently. Naming and docs always lead with what the primitive IS. Applications are examples, not definitions.
 
 This is the discipline that keeps oak applicable beyond the initial dogfooder.
 
-## Operating rules
+### Operating rules
 
 Respond to issues quickly. Review PRs with context. Write changelogs that explain behavior changes. Document when oak is the wrong choice.
 

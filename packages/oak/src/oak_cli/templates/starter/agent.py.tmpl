@@ -55,7 +55,7 @@ app = FastAPI(title="${name}", lifespan=lifespan)
 
 @app.post("/turn")
 async def turn(req: TurnRequest) -> dict[str, str]:
-    """[USER] per-request handler — one turn of the agent loop."""
+    """[USER] per-request handler - one turn of the agent loop."""
 
     # [OAK] gated import: only available if `oak[openhands]` extra is installed
     try:
@@ -94,13 +94,13 @@ async def turn(req: TurnRequest) -> dict[str, str]:
 
 @app.post("/end/{session_id}")
 async def end(session_id: str) -> dict[str, str]:
-    """[USER] terminate a session — workspace torn down, state cleared."""
+    """[USER] terminate a session - workspace torn down, state cleared."""
     await oak.session.end(session_id)  # type: ignore[attr-defined]
     return {"status": "ended", "session_id": session_id}
 
 
 if __name__ == "__main__":
-    # [USER] dev runner — production: use uvicorn / gunicorn directly
+    # [USER] dev runner - production: use uvicorn / gunicorn directly
     import uvicorn
 
     uvicorn.run(

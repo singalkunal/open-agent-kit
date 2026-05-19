@@ -11,11 +11,11 @@ All four follow the same shape: implement a small Protocol, pass contract tests,
 
 ---
 
-## Recipe A - Workspace backend
+### Recipe A - Workspace backend
 
 Add a new sandbox provider.
 
-### Steps
+#### Steps
 
 1. **Read the Protocol.** Find `oak.workspace.Workspace` in `oak_workspace/protocol.py`. The docstrings spell out method semantics, errors, idempotency, and reconnect contract.
 
@@ -48,18 +48,18 @@ Add a new sandbox provider.
    daytona = "oak_workspace_daytona:DaytonaWorkspace"
    ```
 
-### Reference impl to copy from
+#### Reference impl to copy from
 
 - `oak_workspace/local.py` (~150 LOC) - minimal subprocess-based backend
 - `oak_workspace/e2b.py` (~300 LOC) - full reconnect + capability flags + provider-native timeout
 
 ---
 
-## Recipe B - Trace-source adapter
+### Recipe B - Trace-source adapter
 
-Adapt a tracing backend's query API so `oak.session` can rehydrate from it.
+Adapt a tracing backend's query API so `oak.session` can resume a session's history from it.
 
-### Steps
+#### Steps
 
 1. **Read the Protocol.**
    ```python
@@ -104,7 +104,7 @@ Adapt a tracing backend's query API so `oak.session` can rehydrate from it.
    honeycomb = "oak_session_honeycomb:HoneycombTraceSource"
    ```
 
-### Reference impls to copy from
+#### Reference impls to copy from
 
 - `oak_session/_trace_sources/staso.py` - full bidirectional (emission + query) adapter
 - `oak_session/_trace_sources/langfuse.py` - wraps `langfuse-python` query API
@@ -112,11 +112,11 @@ Adapt a tracing backend's query API so `oak.session` can rehydrate from it.
 
 ---
 
-## Recipe C - State-store backend
+### Recipe C - State-store backend
 
 Wire `SessionStateStore` to a new persistence layer (DynamoDB, MongoDB, your existing app DB).
 
-### Steps
+#### Steps
 
 1. **Read the Protocol.**
    ```python
@@ -139,7 +139,7 @@ Wire `SessionStateStore` to a new persistence layer (DynamoDB, MongoDB, your exi
    dynamodb = "oak_session_dynamodb:DynamoStateStore"
    ```
 
-### Reference impls to copy from
+#### Reference impls to copy from
 
 - `oak_session/_state_stores/in_memory.py` (~50 LOC) - simplest
 - `oak_session/_state_stores/redis.py` (~120 LOC) - production reference
@@ -147,13 +147,13 @@ Wire `SessionStateStore` to a new persistence layer (DynamoDB, MongoDB, your exi
 
 ---
 
-## Recipe D - Per-framework session wrapper
+### Recipe D - Per-framework session wrapper
 
 Add a new agent framework to `oak.session.<framework>`.
 
 This is the largest of the four recipes because each framework has its own primitives (agent loop API, message shape, approval mechanism). But the pattern is uniform.
 
-### Steps
+#### Steps
 
 1. **Pick the namespace.** New sub-module: `oak.session.<framework>` (e.g., `oak.session.claude` for Claude Agent SDK).
 
@@ -191,11 +191,11 @@ This is the largest of the four recipes because each framework has its own primi
    claude = "oak_session_claude:claude_framework_metadata"
    ```
 
-### Reference impl to copy from
+#### Reference impl to copy from
 
 - `oak.session.openhands` (~250 LOC across `attach`, `build_session`, `OpenHandsSession`, `WorkspaceAdapter`) - the v0.1 reference
 
-### Key design rule - composition, never inheritance
+#### Key design rule - composition, never inheritance
 
 The old `openhands-agent-sdk-ext` fork's `AsyncLocalConversation` subclassed upstream `LocalConversation`. That coupled the fork to upstream's internal class hierarchy and required maintaining a separate package.
 
@@ -205,7 +205,7 @@ Apply the same rule to any new framework adapter: hold the framework's native se
 
 ---
 
-## What oak should provide (contract)
+### What oak should provide (contract)
 
 | Promise | Where it's enforced |
 |---|---|
@@ -219,7 +219,7 @@ If any of these are missing for a shipped module, file an issue.
 
 ---
 
-## When NOT to extend oak
+### When NOT to extend oak
 
 - Your "new backend" is actually a thin wrapper around an existing one with one extra option. File a PR adding the option to the existing backend instead.
 - Your "new framework" is a custom loop you wrote in-house. You may not need an adapter at all - duck-type and use `oak.session.attach()` directly + the workspace adapter.

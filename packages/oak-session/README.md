@@ -4,16 +4,16 @@ Session rehydration, lease coordination, and per-framework wrappers for oak.
 
 oak.session is the load-bearing module. It handles:
 
-- **Cross-process resume** — close a session, come back hours later (possibly on a
+- **Cross-process resume** - close a session, come back hours later (possibly on a
   different process), continue where you left off.
-- **Single-ownership coordination** — only one process processes a given session at
+- **Single-ownership coordination** - only one process processes a given session at
   a time, even under WebSocket reconnects and load-balancer rerouting.
-- **Per-framework wrappers** — the same primitive works whether the agent loop
+- **Per-framework wrappers** - the same primitive works whether the agent loop
   is OpenHands, Claude Agent SDK, OpenAI Agents SDK, or LangGraph.
 
 See `docs/design/session.md` in the monorepo for the full spec.
 
-## Install
+### Install
 
 ```bash
 pip install oak-session                    # core
@@ -23,7 +23,7 @@ pip install oak-session[staso]             # StasoTraceSource (stub until SDK sh
 pip install oak-session[openhands]         # oak.session.openhands wrappers
 ```
 
-## Quickstart (OpenHands)
+### Quickstart (OpenHands)
 
 ```python
 # [USER] one-time setup at process startup
@@ -63,7 +63,7 @@ async def handle_user_message(session_id: str, user_text: str):
         await oak.session.end(session_id)                # [OAK]
 ```
 
-## Three storage shapes
+### Three storage shapes
 
 | Shape | Backend Protocol | What lives here | Backends |
 |---|---|---|---|
@@ -73,25 +73,25 @@ async def handle_user_message(session_id: str, user_text: str):
 
 Each shape, the right backend, the right semantics.
 
-## Three-tier pluggability
+### Three-tier pluggability
 
 Every public surface exposes three extension tiers:
 
 | Tier | Mechanism | Use case |
 |---|---|---|
-| **1 — Backend plug** | Protocol + reference impls + entry-point discovery | Swap Redis ↔ Postgres state store, E2B ↔ Daytona workspace |
-| **2 — Behavior knob** | kwarg / config parameter | Tune defaults (`on_workspace_lost`, `exit_workspace`, `include_notices`) |
-| **3 — Full custom** | Subclass / callback / escape hatch | `session_class=`, `context_composer=`, direct `attached.workspace` access |
+| **1 - Backend plug** | Protocol + reference impls + entry-point discovery | Swap Redis or Postgres state store, E2B or Daytona workspace |
+| **2 - Behavior knob** | kwarg / config parameter | Tune defaults (`on_workspace_lost`, `exit_workspace`, `include_notices`) |
+| **3 - Full custom** | Subclass / callback / escape hatch | `session_class=`, `context_composer=`, direct `attached.workspace` access |
 
-## Ownership markers
+### Ownership markers
 
 Docs and examples use ownership markers so the boundary between user code,
 framework code, and oak code stays explicit:
 
-- **[USER]** — your code
-- **[OAK]** — oak's mechanism
-- **[FRAMEWORK]** — upstream agent framework (OpenHands, Claude Agent SDK, ...)
+- **[USER]** - your code
+- **[OAK]** - oak's mechanism
+- **[FRAMEWORK]** - upstream agent framework (OpenHands, Claude Agent SDK, ...)
 
-## License
+### License
 
 Apache-2.0

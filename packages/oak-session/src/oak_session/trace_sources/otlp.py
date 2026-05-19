@@ -40,10 +40,15 @@ def _normalize(span: dict[str, Any]) -> GenAISpan:
     return GenAISpan(
         span_id=str(span.get("span_id") or span.get("spanId") or ""),
         name=str(span.get("name", "")),
-        start_time_unix_nano=int(span.get("start_time_unix_nano") or span.get("startTimeUnixNano") or 0),
+        start_time_unix_nano=int(
+            span.get("start_time_unix_nano") or span.get("startTimeUnixNano") or 0
+        ),
         end_time_unix_nano=(
-            int(span["end_time_unix_nano"]) if "end_time_unix_nano" in span else
-            int(span["endTimeUnixNano"]) if "endTimeUnixNano" in span else None
+            int(span["end_time_unix_nano"])
+            if "end_time_unix_nano" in span
+            else int(span["endTimeUnixNano"])
+            if "endTimeUnixNano" in span
+            else None
         ),
         attributes=dict(attrs),
         events=list(span.get("events", []) or []),

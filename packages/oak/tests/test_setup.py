@@ -4,18 +4,16 @@ Snapshots live under ``tests/fixtures/setup/<combo>/``. To regenerate them
 after a deliberate change to the manifest or templates, run::
 
     OAK_UPDATE_SNAPSHOTS=1 uv run pytest packages/oak/tests/test_setup.py
-
-Or pass ``--update-snapshots`` (we wire it as a CLI flag below).
 """
 
 from __future__ import annotations
 
-import ast
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+import yaml
 from oak_cli.main import app
 from oak_cli.setup_manifest import (
     SetupSelection,
@@ -65,20 +63,29 @@ COMBOS: list[Combo] = [
         ),
     ),
     Combo(
-        name="e2b_postgres_redisseparate_langfuse",
+        name="e2b_inmem_redisseparate_staso",
         selection=SetupSelection(
             workspace="e2b",
-            state_store="postgres",
+            state_store="in_memory",
             lease="redis_separate",
-            tracing="langfuse",
+            tracing="staso",
             framework="openhands",
             substitutions={
                 "E2B_API_KEY_NAME": "E2B_API_KEY",
                 "E2B_TIMEOUT_MS": "900000",
-                "PG_URL_NAME": "DATABASE_URL",
                 "REDIS_LEASE_URL_NAME": "REDIS_LEASE_URL",
-                "LANGFUSE_API_KEY_NAME": "LANGFUSE_PUBLIC_KEY",
+                "STASO_API_KEY_NAME": "STASO_API_KEY",
             },
+        ),
+    ),
+    Combo(
+        name="local_custom_custom_none",
+        selection=SetupSelection(
+            workspace="local",
+            state_store="custom",
+            lease="custom",
+            tracing="none",
+            framework="openhands",
         ),
     ),
     Combo(
@@ -94,12 +101,25 @@ COMBOS: list[Combo] = [
 ]
 
 
+_EXPECTED_SECTIONS = {
+    "version",
+    "workspace",
+    "state_store",
+    "lease",
+    "tracing",
+    "framework",
+}
+
+
 @pytest.mark.parametrize("combo", COMBOS, ids=lambda c: c.name)
 def test_snapshot(combo: Combo) -> None:
     manifest = load_manifest()
     bundle = render_bundle(manifest, combo.selection)
-    # Generated python must always parse.
-    ast.parse(bundle["oak_setup.py"])
+
+    parsed = yaml.safe_load(bundle["oak.yaml"])
+    assert isinstance(parsed, dict)
+    assert parsed["version"] == 1
+    assert _EXPECTED_SECTIONS.issubset(parsed.keys())
 
     fixture_dir = FIXTURES / combo.name
     if _should_update() or not fixture_dir.exists():
@@ -123,47 +143,39 @@ def test_non_interactive_smoke(tmp_path: Path) -> None:
     """`oak setup --non-interactive -o <dir>` runs end-to-end with no prompts."""
     runner = CliRunner()
     out = tmp_path / "bundle"
-    result = runner.invoke(
-        app, ["setup", "--non-interactive", "--output", str(out)]
-    )
+    result = runner.invoke(app, ["setup", "--non-interactive", "--output", str(out)])
     assert result.exit_code == 0, result.output
-    for name in ("oak_setup.py", "pyproject_snippet.toml", ".env.example"):
+    for name in ("oak.yaml", "pyproject_snippet.toml", ".env.example"):
         assert (out / name).exists(), f"missing {name}"
-    # docker-compose must NOT be emitted for the all-in-memory default.
     assert not (out / "docker-compose.yml").exists()
-    ast.parse((out / "oak_setup.py").read_text(encoding="utf-8"))
+    assert not (out / "oak_setup.py").exists()
+    spec = yaml.safe_load((out / "oak.yaml").read_text(encoding="utf-8"))
+    assert spec["version"] == 1
+    assert spec["state_store"]["kind"] == "in_memory"
 
 
 def test_interactive_default_inputs(tmp_path: Path) -> None:
-    """Walk the prompts with explicit picks for the zero-credentials combo.
-
-    workspace=1 (local), state_store=1 (in_memory), lease=2 (in_memory),
-    tracing=1 (none), framework=1 (openhands).
-    """
     runner = CliRunner()
     out = tmp_path / "interactive"
     answers = "\n".join(["1", "1", "2", "1", "1", str(out)]) + "\n"
     result = runner.invoke(app, ["setup"], input=answers)
     assert result.exit_code == 0, result.output
-    assert (out / "oak_setup.py").exists()
+    assert (out / "oak.yaml").exists()
     assert not (out / "docker-compose.yml").exists()
+    assert not (out / "oak_setup.py").exists()
 
 
-def test_redis_state_store_offers_shared_lease(tmp_path: Path) -> None:
-    """When state_store=redis is picked, the lease menu must offer 'shared'."""
+def test_redis_state_store_shared_lease_reuses_url_env(tmp_path: Path) -> None:
+    """When state_store=redis is picked, the shared-lease option must reuse the same url_env."""
     runner = CliRunner()
     out = tmp_path / "redis_combo"
-    # picks: workspace=1 (local), state_store=2 (redis), env=default,
-    # lease=1 (redis_shared), reuse=y, tracing=1 (none), framework=1, dir.
-    answers = "\n".join(
-        ["1", "2", "", "1", "y", "1", "1", str(out)]
-    ) + "\n"
+    answers = "\n".join(["1", "2", "", "1", "y", "1", "1", str(out)]) + "\n"
     result = runner.invoke(app, ["setup"], input=answers)
     assert result.exit_code == 0, result.output
-    text = (out / "oak_setup.py").read_text(encoding="utf-8")
-    # Only one Redis client should be wired (shared mode).
-    assert "RedisLease(redis_client)" in text
-    assert "lease_redis" not in text
+    spec = yaml.safe_load((out / "oak.yaml").read_text(encoding="utf-8"))
+    assert spec["state_store"]["kind"] == "redis"
+    assert spec["lease"]["kind"] == "redis"
+    assert spec["state_store"]["url_env"] == spec["lease"]["url_env"]
 
 
 def test_help_prints_setup() -> None:
@@ -171,3 +183,22 @@ def test_help_prints_setup() -> None:
     result = runner.invoke(app, ["setup", "--help"])
     assert result.exit_code == 0
     assert "interactive wizard" in result.output.lower()
+
+
+def test_wizard_menu_excludes_loader_unsupported_backends() -> None:
+    """The wizard must only offer backends the YAML loader can construct.
+
+    Backends gated as NotImplementedError in configure_from_yaml (postgres
+    state_store; langfuse / phoenix / logfire / otlp tracing) must not appear
+    in the manifest or the *_ORDER tuples consumed by the prompts.
+    """
+    from oak_cli import cmd_setup
+
+    manifest = load_manifest()
+    assert "postgres" not in manifest.state_store
+    for kind in ("langfuse", "phoenix", "logfire", "otlp"):
+        assert kind not in manifest.tracing, f"{kind} leaked into tracing manifest"
+
+    assert "postgres" not in cmd_setup.STATE_ORDER
+    for kind in ("langfuse", "phoenix", "logfire", "otlp"):
+        assert kind not in cmd_setup.TRACE_ORDER, f"{kind} leaked into TRACE_ORDER"

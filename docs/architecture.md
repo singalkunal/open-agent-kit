@@ -2,9 +2,9 @@
 
 oak closes the gap between **packaging an agent** (system prompt + tools + framework loop) and **shipping it to production** (multi-user, multi-server, resumable, non-blocking). Everything in this doc is in service of that one gap.
 
-## A typical production-agent flow
+### A typical production-agent flow
 
-Your product starts an agent for a user. The agent runs for minutes - calling models, running code in a sandbox, reading data, calling external APIs. Your client (web app, CLI, mobile app, embedded tool - whatever you ship) streams progress back. The user can stop the agent, approve actions it proposes, or step away.
+Your product starts an agent for a user. The agent runs for minutes - calling models, running tool calls in a sandbox (shell commands, file edits, code), reading data, calling external APIs. Your client (web app, CLI, mobile app, embedded tool - whatever you ship) streams progress back. The user can stop the agent, approve actions it proposes, or step away.
 
 When the client disconnects, the session pauses. Later - minutes, hours, days - the user reconnects from the same client or a different one. The new connection may land on a different server in your cluster. They pick up exactly where they left off: same conversation, same files in the sandbox, same pending state.
 
@@ -12,7 +12,7 @@ Other users are doing the same thing concurrently. Multiple servers each handle 
 
 That's the flow. oak sits between your product code and the boring runtime parts of it. It doesn't dictate the client (browser, CLI, native app - your choice) or the transport (WebSocket, SSE, long-poll, HTTP polling - your choice). It handles what happens on the server side, between the framework's agent loop and your infrastructure.
 
-## Why this needs a library
+### Why this needs a library
 
 Five problems sit between you and that flow:
 
@@ -26,7 +26,7 @@ What's available today, and why each one is incomplete:
 
 | Tool category | What it gives you | What it doesn't |
 |---|---|---|
-| Agent frameworks (OpenHands, Claude Agent SDK, OpenAI Agents SDK, LangGraph, Mastra) | The agent loop, tool execution, optional approval gates | Assume single-process runtime. No cross-server reconnect, no distributed lease, no async wrapping. OpenHands' `agent-server` ships a `FileLock` for ownership - useless across servers. |
+| Agent frameworks (OpenHands, Claude Agent SDK, OpenAI Agents SDK, LangGraph, Mastra, smolagents) | The agent loop, tool execution, optional approval gates | Assume single-process runtime. No cross-server reconnect, no distributed lease, no async wrapping. OpenHands' `agent-server` ships a `FileLock` for ownership - useless across servers. |
 | Sandbox SDKs (E2B, Daytona, Modal, ...) | Provider-specific create/exec/pause/reconnect | Each is a different API. Swap a provider = rewrite. |
 | Tracing platforms (Langfuse, Phoenix, Staso, Logfire) | Emit spans for every LLM and tool call | Don't help you read spans back to reconstruct conversation history. |
 | Durable execution (Inngest, Temporal, streaq) | Workflow orchestration with retry/restart guarantees | Built for workflows; not the right shape for an agent session that streams events live to a connected client. |
@@ -36,7 +36,7 @@ What's available today, and why each one is incomplete:
 
 The gap nobody fills in OSS: a framework-neutral, multi-vendor runtime layer for cross-server agent sessions. oak is exactly that.
 
-## Who oak is for (and who it isn't)
+### Who oak is for (and who it isn't)
 
 Position your product on two axes - **where the agent runs** and **how long a single session lives**.
 
@@ -77,7 +77,7 @@ Only the **top-right** quadrant has all of: a sandbox to run code, a session tha
 
 If your product is in any other quadrant, oak's primitives still work, but most of them are over-engineered for what you need.
 
-## The stack
+### The stack
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -87,10 +87,15 @@ If your product is in any other quadrant, oak's primitives still work, but most 
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│  AGENT FRAMEWORK                                  (you pick one)  │
-│  drives:  model call → tool call → observation → repeat           │
-│  options: OpenHands · Claude Agent SDK · OpenAI Agents SDK ·       │
-│           LangGraph · Mastra · CrewAI                              │
+│  AGENT FRAMEWORK  /  AGENT HARNESS                (you pick one)  │
+│                                                                   │
+│  The loop:  model call → tool call → observation → repeat        │
+│  Tools, prompts, confirmation policy, message store - all here.  │
+│                                                                   │
+│  options: OpenHands · Claude Agent SDK · OpenAI Agents SDK ·      │
+│           LangGraph · Mastra · CrewAI · smolagents                │
+│                                                                   │
+│  >>> oak does NOT modify, subclass, or fork this layer.           │
 └──────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -99,6 +104,8 @@ If your product is in any other quadrant, oak's primitives still work, but most 
 ║                                                                   ║
 ║   oak.workspace      sandbox abstraction with reconnect           ║
 ║   oak.session        attach/end + per-framework wrappers          ║
+║                      (wraps the framework's session object;       ║
+║                       framework loop runs unchanged inside it)    ║
 ║   oak (CLI)          demo · init · protocols · version            ║
 ║                                                                   ║
 ║   framework-neutral · multi-vendor · escape hatches everywhere    ║
@@ -113,24 +120,58 @@ If your product is in any other quadrant, oak's primitives still work, but most 
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Each layer talks down to the one below. Lower layers never reach up. The framework runs the agent's logic. oak handles the runtime concerns around it. Providers store the bytes.
+Each layer talks down to the one below. Lower layers never reach up. The framework runs the agent's logic; oak handles the runtime concerns around it; providers store the bytes.
 
-## Sandbox patterns
+### Where the harness lives (and what oak does to it)
+
+oak doesn't replace, subclass, or fork the agent harness. It **wraps** the framework's native session object by composition - the framework loop is untouched inside.
+
+```
+  oak.session.openhands.OpenHandsSession   ← thin async-safe wrapper (oak owns this)
+  ┌────────────────────────────────────────────────────────────────┐
+  │  .conv  →  LocalConversation                                   │
+  │           ┌──────────────────────────────────────────────────┐ │
+  │           │  AGENT HARNESS  (framework code; oak ≠ touches)  │ │
+  │           │                                                  │ │
+  │           │   model call → tool call → observation → repeat │ │
+  │           │   tools, prompts, confirmation policy, history  │ │
+  │           └──────────────────────────────────────────────────┘ │
+  │                                                                │
+  │  async run_turn()  =  await asyncio.to_thread(self.conv.run)  │
+  │  async approve()   =  await asyncio.to_thread(self.conv.run)  │
+  │  async reject()    =  self.conv.reject_pending_actions(...)   │
+  │                       + await asyncio.to_thread(self.conv.run)│
+  └────────────────────────────────────────────────────────────────┘
+       ▲
+       │  The upstream object stays directly reachable as `session.conv`.
+       │  Any framework API oak hasn't wrapped, you call on `.conv`.
+```
+
+What oak adds *around* the harness (none of which lives inside the harness itself):
+
+- **Lease.** Claim ownership of `session_id` before the harness runs; release on exit.
+- **Workspace lifecycle.** Boot / reconnect the sandbox the harness will run code in; pause it on exit.
+- **Async bridge.** Frameworks ship synchronous `Conversation.run()`. oak runs it on a worker thread so your event loop keeps streaming.
+- **Trace replay.** Read prior turns from your tracing backend and hand them to the framework as initial messages.
+
+Result: you can swap the framework (OpenHands → Claude Agent SDK → smolagents) without rewriting oak; you can swap oak without rewriting the framework code; and when oak's wrapper doesn't expose an upstream feature, you reach in via `.conv` and use it directly.
+
+### Sandbox patterns
 
 Production agents use sandboxes in several distinct patterns. oak targets one of them.
 
 | # | Pattern | What it is | oak's stance |
 |---|---|---|---|
-| 1 | Ephemeral per-call | Boot → execute one command → tear down. No state across calls. | Works (skip `reconnect()`). Overkill - provider SDK directly is fine. |
+| 1 | Ephemeral per-call | Boot, execute one command, tear down. No state across calls. | Works (skip `reconnect()`). Often overkill - the provider SDK directly is fine. |
 | 2 | Ephemeral per-session | Boot at session start, hold across turns, tear down at session end. No survival across restarts. | Works (`exit_workspace="terminate"`). Useful for multi-provider portability without resume. |
 | 3 | **Persistent / sticky per-session** | Sandbox survives across turns AND pauses, restarts, server changes. Reconnect from any server. | **oak's primary target.** The `attach` / `pause` / `reconnect` / `end` flow exists for this. |
-| 4 | Shared / pooled | Pool of warm sandboxes shared across sessions; grab one per request. | Not in v0.1. Demand-led addition - a pool manager + slot lease sits next to `oak.workspace`; session model unchanged. |
-| 5 | Per-tenant / per-org persistent | One sandbox per tenant, shared across that tenant's sessions, lives indefinitely. | Not in v0.1. The most invasive extension - sandbox lifetime decouples from `session_id`, needs a "shared workspace" concept above sessions. |
-| 6 | Forked from snapshot | Snapshot a base environment; fork to a child sandbox per session. | Partial - `Workspace.snapshot()` / `restore()` are in the Protocol today, capability-flag gated. Lands when a provider adapter that supports it ships. |
+| 4 | Shared / pooled | Pool of warm sandboxes shared across sessions; grab one per request. | Compose above `oak.workspace` - a pool manager + slot lease sits next to it; session model unchanged. |
+| 5 | Per-tenant / per-org persistent | One sandbox per tenant, shared across that tenant's sessions, lives indefinitely. | Decouple sandbox lifetime from `session_id` in user code; oak's primitives don't enforce a 1:1 mapping. |
+| 6 | Forked from snapshot | Snapshot a base environment; fork to a child sandbox per session. | `Workspace.snapshot()` / `restore()` live in the Protocol behind a capability flag; usable wherever a backend implements them. |
 
-If your product uses pattern 1 or 2, oak's workspace abstraction still gets you multi-provider portability - just don't store handles and don't call `reconnect()`. Patterns 4, 5, 6 are extensible but not in v0.1; oak's Protocols are small enough that adding new patterns means adding Protocols or methods, not rewriting the core.
+If your product uses pattern 1 or 2, oak's workspace abstraction still gets you multi-provider portability - just don't store handles and don't call `reconnect()`. Patterns 4, 5, 6 compose above the Protocol; oak's Protocols are small enough that supporting new patterns means adding Protocols or methods, not rewriting the core.
 
-### Timeline view (1 vs 2 vs 3)
+#### Timeline view (1 vs 2 vs 3)
 
 Time runs left to right. Each `[box]` is a sandbox state. Server changes are explicit.
 
@@ -155,15 +196,15 @@ Pattern 3's distinguishing trait: the sandbox **persists across both time and se
 
 The rest of this doc describes pattern 3.
 
-## What oak handles in that flow
+### What oak handles in that flow
 
-- **Sandbox abstraction with reconnect.** `oak.workspace.create(provider, ...)` and `oak.workspace.reconnect(provider, handle)` work across local, E2B, Daytona, Modal, Docker.
-- **Sticky handle per session.** Small serializable dict, no secrets, retrievable from any server.
-- **One-call resume.** `oak.session.openhands.attach(session_id, ...)` claims the lease, reconnects the sandbox, replays history from your tracer, returns a ready session.
-- **Single-owner session lease.** Pluggable backend (Redis, in-memory, custom) with TTL. Only one server processes a session at a time; dead owners expire automatically.
-- **Async bridge to sync loops.** Framework's `Conversation.run()` runs in a worker thread; your event loop keeps streaming.
+- **The same sandbox across the session.** `oak.workspace.create(provider, ...)` and `oak.workspace.reconnect(provider, handle)` work across local, E2B, Daytona, Modal, Docker. One interface; the agent keeps its filesystem across turns, pauses, and server restarts.
+- **A small handle that travels with the session.** Serializable dict, no secrets, retrievable from any server so any process can wake the sandbox.
+- **One call to resume.** `oak.session.openhands.attach(session_id, ...)` claims the lease, reconnects the sandbox, replays history from your tracer, returns a ready session.
+- **One owner per session at a time.** Pluggable lease (Redis, in-memory, custom) with TTL. Only one server processes a session at a time; dead owners expire automatically.
+- **An async-safe wrapper around sync loops.** Framework's `Conversation.run()` runs in a worker thread; your event loop keeps streaming.
 
-## What you keep building
+### What you keep building
 
 - **Product code.** Routes, auth, UI, client transport (WebSocket, SSE, long-poll, your choice).
 - **System prompt and tools.** oak doesn't ship either.
@@ -171,10 +212,11 @@ The rest of this doc describes pattern 3.
 - **Tracing backend.** oak reads spans from whichever you picked.
 - **Sandbox provider account.** oak drives the SDK; you bring the credentials.
 - **State store.** Three-method interface. Pick Redis, Postgres, in-memory, or write your own.
+- **Your infra.** oak doesn't provision Redis, Postgres, or sandbox runtimes for you. Run them however you prefer - local containers, k8s, managed cloud, whatever fits.
 
-## Walkthrough - one session's life
+### Walkthrough - one session's life
 
-Six phases. oak shows up from phase 2 onwards.
+Six steps. oak shows up from step 2 onwards.
 
 **1. Created.** Your app inserts a session row, returns the `session_id`. No oak involvement.
 
@@ -188,9 +230,9 @@ Six phases. oak shows up from phase 2 onwards.
 
 **6. Ended.** Your code calls `oak.session.end(session_id)` when the work is done (final response, user clicked End, hard TTL cron). oak terminates the sandbox, clears state, releases the lease.
 
-## Where state actually lives
+### Where state actually lives
 
-Reading the lifecycle backwards: for phase 5 (resume) to work, three things must be retrievable by any server in your cluster at any moment. Each kind of state needs a different shape of storage:
+For resume to work, three things must be retrievable by any server in your cluster at any moment. Each kind of state needs a different shape of storage:
 
 | State | Where it lives | Why this shape |
 |---|---|---|
@@ -200,7 +242,7 @@ Reading the lifecycle backwards: for phase 5 (resume) to work, three things must
 
 Each is pluggable. Swap any of them - Redis to DynamoDB, Staso to Langfuse, E2B to Daytona - and the agent code doesn't change.
 
-## Customization, in three weights
+### Customization, in three weights
 
 | Weight | Mechanism | When to use |
 |---|---|---|
@@ -208,10 +250,10 @@ Each is pluggable. Swap any of them - Redis to DynamoDB, Staso to Langfuse, E2B 
 | Medium | Swap a backend. `Workspace` is six methods, `SessionStateStore` three, `TraceSource` one. Pass to `oak.session.configure()` or register via entry points. | Adding a provider, store, or tracing backend oak doesn't ship. |
 | Heavy | Escape hatch. `session.conv`, `workspace.underlying`, `attached.workspace` expose the native object. | Calling provider-specific APIs, or wrapping oak primitives for exotic patterns (fallback chains, federation, multi-tenant routing). |
 
-## When oak isn't the right fit
+### When oak isn't the right fit
 
 A one-shot script with no resume, no live streaming, single-process - just construct your agent and run it. You want an agent framework - oak isn't one; pick OpenHands or similar. You want a hosted runtime - that's AWS Bedrock AgentCore. You want prompt templating - LangChain Prompts, Mirascope, DSPy. You want one library that bundles observability + evals + guards - that's a platform (Staso, Langfuse), not oak.
 
-## Vocabulary
+### Vocabulary
 
 In the [README glossary](../README.md#glossary). Anything else is your framework's or provider's vocabulary.

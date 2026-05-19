@@ -157,9 +157,7 @@ async def test_pause_unsupported_raises(workspace: Any) -> None:
 
 
 @pytest.mark.contract
-async def test_reconnect_roundtrip(
-    workspace: Any, provider: str | None = None
-) -> None:
+async def test_reconnect_roundtrip(workspace: Any, provider: str | None = None) -> None:
     """Given supports_reconnect=True, when:
        1. handle = workspace.handle
        2. workspace.execute('echo hi > /tmp/marker')
@@ -312,9 +310,7 @@ async def test_boot_emits_otel_span(provider: str | None = None) -> None:
 async def test_concurrent_execute_isolated(workspace: Any) -> None:
     """20 parallel execute() calls return without cross-contamination.
     PASS if all 20 complete with their own stdout; warn if any share output."""
-    results = await asyncio.gather(
-        *(workspace.execute(f"echo {i}") for i in range(20))
-    )
+    results = await asyncio.gather(*(workspace.execute(f"echo {i}") for i in range(20)))
     expected = {f"{i}\n" for i in range(20)}
     seen = {r.stdout for r in results}
     if seen != expected:
